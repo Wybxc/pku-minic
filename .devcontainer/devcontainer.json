@@ -1,0 +1,15 @@
+{
+  "image": "maxxing/compiler-dev",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "WakaTime.vscode-wakatime",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "postStartCommand": "apt update && apt install vim -y && rustup update stable"
+}
