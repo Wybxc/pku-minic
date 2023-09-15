@@ -1,0 +1,16 @@
+[package]
+name = "pku-minic"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clio = "0.3.4"
+colored = "2.0.4"
+koopa = "0.0.7"
+lalrpop-util = { version = "0.20.0", features = ["lexer"] }
+regex = "1.9.5"
+
+[build-dependencies]
+lalrpop = "0.20.0"

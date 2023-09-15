@@ -1,15 +1,19 @@
 {
-  "image": "maxxing/compiler-dev",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
         "rust-lang.rust-analyzer",
         "WakaTime.vscode-wakatime",
         "tamasfe.even-better-toml",
-        "serayuzgur.crates"
+        "serayuzgur.crates",
+        "guyutongxue.lalrpop-syntax-highlight",
+        "github.copilot",
+        "github.copilot-chat"
       ]
     }
   },
-  "forwardPorts": [],
-  "postStartCommand": "apt update && apt install vim -y && rustup update stable"
+  "forwardPorts": []
 }
