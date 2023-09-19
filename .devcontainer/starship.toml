@@ -1,0 +1,141 @@
+format = """
+[](#725e82)\
+$os\
+$username\
+[](fg:#725e82 bg:#db5a6b)\
+$directory\
+[](fg:#db5a6b bg:#e29c45)\
+$git_branch\
+$git_status\
+[](fg:#e29c45 bg:#ffc773)\
+$nodejs\
+$python\
+$conda\
+$rust\
+[](fg:#ffc773 bg:#789262)\
+$status\
+[](fg:#789262)\
+$fill\
+[](#4c8dae)\
+$shell\
+[](bg:#4c8dae fg:#789262)\
+$battery\
+[](bg:#789262 fg:#e29c45)\
+$cmd_duration\
+[](bg:#e29c45 fg:#db5a6b)\
+$time\
+[](fg:#db5a6b)
+$character\
+"""
+
+continuation_prompt = "▶▶ "
+
+
+[fill]
+symbol = " "
+
+
+# 乌色
+[os]
+disabled = false
+style = "bg:#725e82"
+format = "[$symbol]($style)"
+
+[os.symbols]
+Windows = " "
+Ubuntu = " "
+Debian = " "
+
+[username]
+show_always = true
+style_user = "bg:#725e82"
+style_root = "bg:#725e82"
+format = "[$user ]($style)"
+
+# 海棠
+[directory]
+style = "bg:#db5a6b"
+format = "[ $path ]($style)"
+truncation_length = 1
+truncation_symbol = ""
+
+# 黄栌
+[git_branch]
+symbol = ""
+style = "bg:#e29c45"
+format = "[ $symbol $branch ]($style)"
+
+[git_status]
+style = "bg:#e29c45"
+format = "[($all_status$ahead_behind )]($style)"
+
+# 姜黄
+[nodejs]
+symbol = ""
+style = "bg:#ffc773 fg:black"
+not_capable_style = "bg:#ffc773 fg:bold red"
+format = "[ $symbol ($version) ]($style)"
+
+[conda]
+style = "bg:#ffc773 fg:black"
+format = "[\\($environment\\) ]($style)"
+
+[python]
+symbol = ""
+style = "bg:#ffc773 fg:black"
+format = "[ $symbol ($version) ]($style)"
+
+[rust]
+symbol = ""
+style = "bg:#ffc773 fg:black"
+format = "[ $symbol ($version) ]($style)"
+
+# 竹青
+[status]
+disabled = false
+symbol = ""
+success_symbol = ""
+not_executable_symbol = ""
+not_found_symbol = ""
+sigint_symbol = ""
+signal_symbol = ""
+style = "bg:#789262"
+format = "[ $symbol $common_meaning$signal_name$maybe_int]($style)"
+map_symbol = true
+
+# 群青
+[shell]
+disabled = false
+style = "bg:#4c8dae"
+format = "[ $indicator ]($style)"
+
+# 竹青
+[battery]
+full_symbol = ""
+charging_symbol = ""
+discharging_symbol = ""
+unknown_symbol = ""
+empty_symbol = ""
+format = "[ $symbol $percentage ]($style)"
+
+[[battery.display]]
+threshold = 100
+style = "bg:#789262"
+
+# 黄栌
+[cmd_duration]
+min_time = 500
+style = "bg:#e29c45"
+format = "[  $duration ]($style)"
+
+# 海棠
+[time]
+disabled = false
+time_format = "%R"
+style = "bg:#db5a6b"
+format = "[ ♥ $time ]($style)"
+
+# 豆青
+[character]
+success_symbol = "[❯](bold #96ce54)"
+error_symbol = "[❯](bold #96ce54)"
