@@ -91,7 +91,7 @@ fn main() -> std::io::Result<()> {
             gen.generate_on(&program)?;
         }
         Mode::Riscv => {
-            todo!("riscv backend is not implemented yet")
+            pku_minic::codegen(program, args.output)?;
         }
     }
 
