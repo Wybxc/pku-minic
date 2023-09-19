@@ -1,3 +1,4 @@
+use eyre::Result;
 use std::io::Read;
 
 struct Args {
@@ -73,16 +74,28 @@ _Arguments_:
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<()> {
     // Parse command line arguments
     let mut args = Args::parse();
 
     // Read input
+    let filename = if args.input.is_local() {
+        args.input.path().path().to_str().unwrap_or("<file>")
+    } else {
+        "<file>"
+    }
+    .to_owned();
     let mut input = String::new();
     args.input.read_to_string(&mut input)?;
 
     // Compile
-    let program = pku_minic::compile(&input);
+    let program = match pku_minic::compile(&input, &filename) {
+        Ok(program) => program,
+        Err(report) => {
+            report.eprint((filename.as_str(), ariadne::Source::from(&input)))?;
+            std::process::exit(1);
+        }
+    };
 
     // Generate output
     match args.mode {
@@ -103,17 +116,17 @@ fn main() -> std::io::Result<()> {
 /// * `_underline_`
 /// * `*bold*`
 fn markup(s: &str) -> String {
-    use colored::*;
     use regex::{Captures, Regex};
+    use yansi::Paint;
 
     Regex::new(r"_(?P<underline>.*?)_|\*(?P<bold>.*?)\*")
         .unwrap()
         .replace_all(s, |caps: &Captures| {
             if let Some(s) = caps.name("bold") {
-                return s.as_str().bold().to_string();
+                return Paint::new(s.as_str()).bold().to_string();
             }
             if let Some(s) = caps.name("underline") {
-                return s.as_str().bold().underline().to_string();
+                return Paint::new(s.as_str()).bold().underline().to_string();
             }
             unreachable!()
         })
