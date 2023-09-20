@@ -45,19 +45,44 @@ impl Codegen<&koopa::ir::FunctionData> {
         let dfg = self.0.dfg();
         for (&_bb, node) in self.0.layout().bbs() {
             for &inst in node.insts().keys() {
+                // Prologue.
                 let mut frame_size = regs.frame_size();
                 if frame_size > 0 {
                     frame_size = (frame_size + 15) & !15; // 16-byte alignment.
-                    writeln!(w, "    add $sp, $sp, -{}", frame_size)?;
+                    writeln!(w, "    add sp, sp, -{}", frame_size)?;
                 }
+
+                // Generate code for the instruction.
                 Codegen(inst).generate(w, dfg, &regs)?;
+
+                // Epilogue.
                 if frame_size > 0 {
-                    writeln!(w, "    add $sp, $sp, {}", frame_size)?;
+                    writeln!(w, "    add sp, sp, {}", frame_size)?;
                 }
             }
         }
 
         Ok(())
+    }
+}
+
+/// Simple binary operations that can be directly translated to RISC-V assembly.
+fn simple_bop_to_asm(op: BinaryOp) -> Option<&'static str> {
+    match op {
+        BinaryOp::Add => Some("add"),
+        BinaryOp::Sub => Some("sub"),
+        BinaryOp::Mul => Some("mul"),
+        BinaryOp::Div => Some("div"),
+        BinaryOp::Mod => Some("rem"),
+        BinaryOp::Lt => Some("slt"),
+        BinaryOp::Gt => Some("sgt"),
+        BinaryOp::And => Some("and"),
+        BinaryOp::Or => Some("or"),
+        BinaryOp::Xor => Some("xor"),
+        BinaryOp::Shl => Some("sll"),
+        BinaryOp::Shr => Some("srl"),
+        BinaryOp::Sar => Some("sra"),
+        _ => None,
     }
 }
 
@@ -67,6 +92,7 @@ impl Codegen<koopa::ir::entities::Value> {
         match dfg.value(self.0).kind() {
             ValueKind::Return(ret) => {
                 if let Some(val) = ret.value() {
+                    // Load the return value to a0.
                     Codegen(val).load_value_to_reg(w, dfg, regs, RegId::A0)?;
                 }
                 writeln!(w, "    ret")
@@ -75,50 +101,35 @@ impl Codegen<koopa::ir::entities::Value> {
                 let lhs = Codegen(bin.lhs()).load_value(w, dfg, regs, RegId::T0)?;
                 let rhs = Codegen(bin.rhs()).load_value(w, dfg, regs, RegId::T1)?;
 
+                // Get the register that stores the result.
+                // If the result will be stored in stack, use a0 as the temporary register.
                 let storage = regs.get(self.0);
                 let reg = match storage {
                     Storage::Reg(reg) => reg,
                     Storage::Slot(_) => RegId::A0,
                 };
 
-                match bin.op() {
-                    BinaryOp::Add => {
-                        writeln!(w, "    add {}, {}, {}", reg, lhs, rhs)?;
-                    }
-                    BinaryOp::Sub => {
-                        writeln!(w, "    sub {}, {}, {}", reg, lhs, rhs)?;
-                    }
-                    BinaryOp::Lt => {
-                        writeln!(w, "    slt {}, {}, {}", reg, lhs, rhs)?;
-                    }
-                    BinaryOp::Gt => {
-                        writeln!(w, "    sgt {}, {}, {}", reg, lhs, rhs)?;
-                    }
-                    BinaryOp::Le => {
-                        writeln!(w, "    sle {}, {}, {}", reg, lhs, rhs)?;
-                    }
-                    BinaryOp::Ge => {
-                        writeln!(w, "    sge {}, {}, {}", reg, lhs, rhs)?;
-                    }
-                    BinaryOp::Eq => {
-                        if lhs != RegId::T0 {
-                            writeln!(w, "    mv {}, {}", RegId::T0, lhs)?;
+                if let Some(asm) = simple_bop_to_asm(bin.op()) {
+                    // Simple binary operations, such as add, sub, and, etc.
+                    writeln!(w, "    {} {}, {}, {}", asm, reg, lhs, rhs)?;
+                } else {
+                    // Specially deal with eq and ne.
+                    match bin.op() {
+                        BinaryOp::Eq => {
+                            writeln!(w, "    xor {}, {}, {}", RegId::T0, lhs, rhs)?;
+                            writeln!(w, "    seqz {}, {}", reg, RegId::T0)?;
                         }
-                        writeln!(w, "    xor {}, {}, {}", RegId::T0, RegId::T0, rhs)?;
-                        writeln!(w, "    seqz {}, {}", reg, RegId::T0)?;
-                    }
-                    BinaryOp::NotEq => {
-                        if lhs != RegId::T0 {
-                            writeln!(w, "    mv {}, {}", RegId::T0, lhs)?;
+                        BinaryOp::NotEq => {
+                            writeln!(w, "    xor {}, {}, {}", RegId::T0, lhs, rhs)?;
+                            writeln!(w, "    snez {}, {}", reg, RegId::T0)?;
                         }
-                        writeln!(w, "    xor {}, {}, {}", RegId::T0, RegId::T0, rhs)?;
-                        writeln!(w, "    snez {}, {}", reg, RegId::T0)?;
+                        _ => panic!("unexpected binary op: {:?}", bin.op()),
                     }
-                    _ => panic!("unexpected binary op: {:?}", bin.op()),
                 }
 
+                // Write the result to stack if necessary.
                 if let Storage::Slot(slot) = storage {
-                    writeln!(w, "    sw {}, {}($sp)", reg, slot)?;
+                    writeln!(w, "    sw {}, {}(sp)", reg, slot)?;
                 }
                 Ok(())
             }
@@ -147,7 +158,7 @@ impl Codegen<koopa::ir::entities::Value> {
             match regs.get(self.0) {
                 Storage::Reg(reg) => Ok(reg),
                 Storage::Slot(slot) => {
-                    writeln!(w, "    lw {}, {}($sp)", temp, slot)?;
+                    writeln!(w, "    lw {}, {}(sp)", temp, slot)?;
                     Ok(temp)
                 }
             }
