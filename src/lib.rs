@@ -27,16 +27,33 @@ pub fn compile<'a>(input: &'a str, filename: &'a str) -> Result<koopa::ir::Progr
             ParseError::ExtraToken { token } => token.0,
             ParseError::User { .. } => 0,
         };
-        let message = match e {
+        let message = match &e {
             ParseError::InvalidToken { .. } => "invalid token",
             ParseError::UnrecognizedEof { .. } => "unexpected end of file",
             ParseError::UnrecognizedToken { .. } => "unexpected token",
             ParseError::ExtraToken { .. } => "extra token",
             ParseError::User { error } => error,
         };
+        let label_message = match e {
+            ParseError::InvalidToken { .. } => "invalid token".to_string(),
+            ParseError::UnrecognizedEof { expected, .. } => {
+                format!("expected one of {}", expected.join(", "))
+            }
+            ParseError::UnrecognizedToken { expected, .. } => {
+                format!("expected one of {}", expected.join(", "))
+            }
+            ParseError::ExtraToken { token } => format!("extra token `{}`", token.1),
+            ParseError::User { error } => error.to_string(),
+        };
 
+        let mut colors = ColorGenerator::new();
         let report = Report::build(ReportKind::Error, filename, location)
             .with_message(message)
+            .with_label(
+                Label::new((filename, location..location))
+                    .with_message(label_message)
+                    .with_color(colors.next()),
+            )
             .finish();
 
         Box::new(report)
