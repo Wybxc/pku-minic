@@ -1,4 +1,8 @@
 //! Build IR from AST.
+//! 
+//! TODO: Sanity check.
+//!   - [ ] Check if all variables are declared before use.
+//!   - [ ] Check if all instructions have unique value id.
 
 use crate::ast;
 use koopa::ir::builder_traits::*;
@@ -84,7 +88,7 @@ impl ast::Expr {
                     ast::UnaryOp::Not => {
                         let dfg = func.dfg_mut();
                         let zero = dfg.new_value().integer(0);
-                        let not = dfg.new_value().binary(BinaryOp::Eq, zero, expr);
+                        let not = dfg.new_value().binary(BinaryOp::Eq, expr, zero);
                         push_inst(func, block, not);
                         not
                     }
