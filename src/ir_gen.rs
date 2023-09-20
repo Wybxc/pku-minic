@@ -55,13 +55,55 @@ impl ast::Stmt {
     /// Build IR from AST in an existing IR node.
     pub fn build_ir_in(self, func: &mut FunctionData, block: BasicBlock) {
         match self {
-            ast::Stmt::Return { num } => {
+            ast::Stmt::Return { expr } => {
+                let expr = expr.build_ir_in(func, block);
                 let dfg = func.dfg_mut();
-                let num = dfg.new_value().integer(num);
-                let ret = dfg.new_value().ret(Some(num));
+                let ret = dfg.new_value().ret(Some(expr));
 
-                func.layout_mut().bb_mut(block).insts_mut().extend([ret]);
+                push_inst(func, block, ret);
             }
         }
     }
+}
+
+impl ast::Expr {
+    /// Build IR from AST in a BasicBlock, return the handle of the result value.
+    pub fn build_ir_in(self, func: &mut FunctionData, block: BasicBlock) -> Value {
+        match self {
+            ast::Expr::Unary { op, expr } => {
+                let expr = expr.build_ir_in(func, block);
+                match op {
+                    ast::UnaryOp::Pos => expr,
+                    ast::UnaryOp::Neg => {
+                        let dfg = func.dfg_mut();
+                        let zero = dfg.new_value().integer(0);
+                        let neg = dfg.new_value().binary(BinaryOp::Sub, zero, expr);
+                        push_inst(func, block, neg);
+                        neg
+                    }
+                    ast::UnaryOp::Not => {
+                        let dfg = func.dfg_mut();
+                        let zero = dfg.new_value().integer(0);
+                        let not = dfg.new_value().binary(BinaryOp::Eq, zero, expr);
+                        push_inst(func, block, not);
+                        not
+                    }
+                }
+            }
+            ast::Expr::Number(num) => {
+                let dfg = func.dfg_mut();
+                let num = dfg.new_value().integer(num);
+                num
+            }
+        }
+    }
+}
+
+/// Push an instruction to the end of a BasicBlock.
+fn push_inst(func: &mut FunctionData, block: BasicBlock, inst: Value) {
+    func.layout_mut()
+        .bb_mut(block)
+        .insts_mut()
+        .push_key_back(inst)
+        .unwrap();
 }

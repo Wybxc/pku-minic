@@ -2,14 +2,15 @@
 name = "pku-minic"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Zhuang Jiayi <wybxc@stu.pku.edu.cn>"]
+description = "A compiler for the SysY language"
 
 [dependencies]
 ariadne = { version = "0.3.0", features = ["concolor"] }
 clio = "0.3.4"
 concolor = { version = "0.1.1", features = ["auto"] }
 eyre = "0.6.8"
+human-panic = "1.2.0"
 koopa = "0.0.7"
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }
 regex = "1.9.5"

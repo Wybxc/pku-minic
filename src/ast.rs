@@ -29,5 +29,20 @@ pub struct Block {
 /// Statement
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Return { num: i32 },
+    Return { expr: Expr },
+}
+
+/// Expression
+#[derive(Debug, Clone)]
+pub enum Expr {
+    Unary { op: UnaryOp, expr: Box<Expr> },
+    Number(i32),
+}
+
+/// Unary Operator
+#[derive(Debug, Clone)]
+pub enum UnaryOp {
+    Pos,
+    Neg,
+    Not,
 }

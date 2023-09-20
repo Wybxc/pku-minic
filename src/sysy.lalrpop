@@ -26,7 +26,25 @@ FuncType: FuncType = "int" => FuncType::Int;
 
 Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
-Stmt: Stmt = "return" <num: Number> ";" => Stmt::Return { <> };
+Stmt: Stmt = "return" <expr: Expr> ";" => Stmt::Return { <> };
+
+Expr: Expr = <expr: UnaryExpr> => <>;
+
+PrimaryExpr: Expr = {
+  <num: Number> => Expr::Number(<>),
+  "(" <expr: Expr> ")" => <>,
+};
+
+UnaryExpr: Expr = {
+  <expr: PrimaryExpr> => <>,
+  <op: UnaryOp> <expr: UnaryExpr> => Expr::Unary { op, expr: Box::new(expr) },
+};
+
+UnaryOp: UnaryOp = {
+  "+" => UnaryOp::Pos,
+  "-" => UnaryOp::Neg,
+  "!" => UnaryOp::Not,
+};
 
 Number: i32 = <num: IntConst> => <>;
 
