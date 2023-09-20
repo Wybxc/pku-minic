@@ -17,6 +17,7 @@ use koopa::ir::{dfg::DataFlowGraph, FunctionData, Value, ValueKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegId {
+    X0,
     A0,
     A1,
     A2,
@@ -37,6 +38,7 @@ pub enum RegId {
 impl Display for RegId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            RegId::X0 => write!(f, "x0"),
             RegId::A0 => write!(f, "a0"),
             RegId::A1 => write!(f, "a1"),
             RegId::A2 => write!(f, "a2"),
