@@ -28,7 +28,7 @@ Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
 Stmt: Stmt = "return" <expr: Expr> ";" => Stmt::Return { <> };
 
-Expr: Expr = <expr: AddExpr> => <>;
+Expr: Expr = <expr: LOrExpr> => <>;
 
 PrimaryExpr: Expr = {
   <num: Number> => Expr::Number(<>),
@@ -73,6 +73,54 @@ AddExpr: Expr = {
 AddOp: BinaryOp = {
   "+" => BinaryOp::Add,
   "-" => BinaryOp::Sub,
+};
+
+RelExpr: Expr = {
+  <lhs: RelExpr> <op: RelOp> <rhs: AddExpr> => Expr::Binary {
+    op,
+    lhs: Box::new(lhs),
+    rhs: Box::new(rhs),
+  },
+  <expr: AddExpr> => <>,
+};
+
+RelOp: BinaryOp = {
+  "<" => BinaryOp::Lt,
+  "<=" => BinaryOp::LtEq,
+  ">" => BinaryOp::Gt,
+  ">=" => BinaryOp::GtEq,
+};
+
+EqExpr: Expr = {
+  <lhs: EqExpr> <op: EqOp> <rhs: RelExpr> => Expr::Binary {
+    op,
+    lhs: Box::new(lhs),
+    rhs: Box::new(rhs),
+  },
+  <expr: RelExpr> => <>,
+};
+
+EqOp: BinaryOp = {
+  "==" => BinaryOp::Eq,
+  "!=" => BinaryOp::NotEq,
+};
+
+LAndExpr: Expr = {
+  <lhs: LAndExpr> "&&" <rhs: EqExpr> => Expr::Binary {
+    op: BinaryOp::LAnd,
+    lhs: Box::new(lhs),
+    rhs: Box::new(rhs),
+  },
+  <expr: EqExpr> => <>,
+};
+
+LOrExpr: Expr = {
+  <lhs: LOrExpr> "||" <rhs: LAndExpr> => Expr::Binary {
+    op: BinaryOp::LOr,
+    lhs: Box::new(lhs),
+    rhs: Box::new(rhs),
+  },
+  <expr: LAndExpr> => <>,
 };
 
 Number: i32 = <num: IntConst> => <>;

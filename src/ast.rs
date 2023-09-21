@@ -63,4 +63,12 @@ pub enum BinaryOp {
     Mul,
     Div,
     Mod,
+    Eq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+    LAnd,
+    LOr,
 }

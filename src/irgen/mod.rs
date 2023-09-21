@@ -124,6 +124,58 @@ impl ast::Expr {
                         push_inst(func, block, rem);
                         rem
                     }
+                    ast::BinaryOp::Eq => {
+                        let eq = dfg.new_value().binary(BinaryOp::Eq, lhs, rhs);
+                        push_inst(func, block, eq);
+                        eq
+                    }
+                    ast::BinaryOp::NotEq => {
+                        let not_eq = dfg.new_value().binary(BinaryOp::NotEq, lhs, rhs);
+                        push_inst(func, block, not_eq);
+                        not_eq
+                    }
+                    ast::BinaryOp::Lt => {
+                        let lt = dfg.new_value().binary(BinaryOp::Lt, lhs, rhs);
+                        push_inst(func, block, lt);
+                        lt
+                    }
+                    ast::BinaryOp::LtEq => {
+                        let lt_eq = dfg.new_value().binary(BinaryOp::Le, lhs, rhs);
+                        push_inst(func, block, lt_eq);
+                        lt_eq
+                    }
+                    ast::BinaryOp::Gt => {
+                        let gt = dfg.new_value().binary(BinaryOp::Gt, lhs, rhs);
+                        push_inst(func, block, gt);
+                        gt
+                    }
+                    ast::BinaryOp::GtEq => {
+                        let gt_eq = dfg.new_value().binary(BinaryOp::Ge, lhs, rhs);
+                        push_inst(func, block, gt_eq);
+                        gt_eq
+                    }
+                    ast::BinaryOp::LAnd => {
+                        let dfg = func.dfg_mut();
+                        let zero = dfg.new_value().integer(0);
+                        let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
+                        let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
+                        let and = dfg.new_value().binary(BinaryOp::And, lhs, rhs);
+                        push_inst(func, block, lhs);
+                        push_inst(func, block, rhs);
+                        push_inst(func, block, and);
+                        and
+                    }
+                    ast::BinaryOp::LOr => {
+                        let dfg = func.dfg_mut();
+                        let zero = dfg.new_value().integer(0);
+                        let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
+                        let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
+                        let or = dfg.new_value().binary(BinaryOp::Or, lhs, rhs);
+                        push_inst(func, block, lhs);
+                        push_inst(func, block, rhs);
+                        push_inst(func, block, or);
+                        or
+                    }
                 }
             }
             ast::Expr::Number(num) => {

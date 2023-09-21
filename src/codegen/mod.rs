@@ -146,6 +146,14 @@ impl Codegen<koopa::ir::entities::Value> {
                             writeln!(w, "    xor {}, {}, {}", RegId::T0, lhs, rhs)?;
                             writeln!(w, "    snez {}, {}", reg, RegId::T0)?;
                         }
+                        BinaryOp::Le => {
+                            writeln!(w, "    sgt {}, {}, {}", reg, lhs, rhs)?;
+                            writeln!(w, "    seqz {}, {}", reg, reg)?;
+                        }
+                        BinaryOp::Ge => {
+                            writeln!(w, "    slt {}, {}, {}", reg, lhs, rhs)?;
+                            writeln!(w, "    seqz {}, {}", reg, reg)?;
+                        }
                         _ => panic!("unexpected binary op: {:?}", bin.op()),
                     }
                 }
