@@ -28,7 +28,7 @@ Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
 Stmt: Stmt = "return" <expr: Expr> ";" => Stmt::Return { <> };
 
-Expr: Expr = <expr: UnaryExpr> => <>;
+Expr: Expr = <expr: AddExpr> => <>;
 
 PrimaryExpr: Expr = {
   <num: Number> => Expr::Number(<>),
@@ -44,6 +44,35 @@ UnaryOp: UnaryOp = {
   "+" => UnaryOp::Pos,
   "-" => UnaryOp::Neg,
   "!" => UnaryOp::Not,
+};
+
+MulExpr: Expr = {
+  <lhs: MulExpr> <op: MulOp> <rhs: UnaryExpr> => Expr::Binary {
+    op,
+    lhs: Box::new(lhs),
+    rhs: Box::new(rhs),
+  },
+  <expr: UnaryExpr> => <>,
+};
+
+MulOp: BinaryOp = {
+  "*" => BinaryOp::Mul,
+  "/" => BinaryOp::Div,
+  "%" => BinaryOp::Mod,
+};
+
+AddExpr: Expr = {
+  <lhs: AddExpr> <op: AddOp> <rhs: MulExpr> => Expr::Binary {
+    op,
+    lhs: Box::new(lhs),
+    rhs: Box::new(rhs),
+  },
+  <expr: MulExpr> => <>,
+};
+
+AddOp: BinaryOp = {
+  "+" => BinaryOp::Add,
+  "-" => BinaryOp::Sub,
 };
 
 Number: i32 = <num: IntConst> => <>;

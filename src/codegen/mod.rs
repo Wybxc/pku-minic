@@ -9,11 +9,17 @@
 //!   + `load_xxx_to_reg` loads a value to a given register. This ensures that the
 //!      value will be stored in the given register.
 
-use std::io::{Result, Write};
+use std::{
+    collections::HashMap,
+    io::{Result, Write},
+};
 
 use koopa::ir::{dfg::DataFlowGraph, BinaryOp, ValueKind};
 
-use crate::codegen::register::{RegAlloc, RegId, Storage};
+use crate::{
+    codegen::register::{RegAlloc, RegId, Storage},
+    irutils,
+};
 
 mod register;
 
@@ -43,22 +49,29 @@ impl Codegen<&koopa::ir::FunctionData> {
 
         let regs = RegAlloc::new(self.0);
         let dfg = self.0.dfg();
+
+        // Prologue.
+        let mut frame_size = regs.frame_size();
+        if frame_size > 0 {
+            frame_size = (frame_size + 15) & !15; // 16-byte alignment.
+            writeln!(w, "    add sp, sp, -{}", frame_size)?;
+        }
+
+        // Epilogue.
+        let epologue = if frame_size > 0 {
+            Some(format!("add sp, sp, {}", frame_size))
+        } else {
+            None
+        };
+
+        // Generate code for the instruction.
         for (&_bb, node) in self.0.layout().bbs() {
+            // Remember the value of each register, so that we will not load the same value
+            // multiple times. Currently we adopt per-bb register cache. Future work may
+            // consider a global register cache by analyzing the data flow.
+            let mut reg_cache = HashMap::new();
             for &inst in node.insts().keys() {
-                // Prologue.
-                let mut frame_size = regs.frame_size();
-                if frame_size > 0 {
-                    frame_size = (frame_size + 15) & !15; // 16-byte alignment.
-                    writeln!(w, "    add sp, sp, -{}", frame_size)?;
-                }
-
-                // Generate code for the instruction.
-                Codegen(inst).generate(w, dfg, &regs)?;
-
-                // Epilogue.
-                if frame_size > 0 {
-                    writeln!(w, "    add sp, sp, {}", frame_size)?;
-                }
+                Codegen(inst).generate(w, dfg, &regs, &mut reg_cache, epologue.as_deref())?;
             }
         }
 
@@ -88,18 +101,28 @@ fn simple_bop_to_asm(op: BinaryOp) -> Option<&'static str> {
 
 impl Codegen<koopa::ir::entities::Value> {
     /// Generate code from Koopa IR for a single instruction.
-    pub fn generate<W: Write>(self, w: &mut W, dfg: &DataFlowGraph, regs: &RegAlloc) -> Result<()> {
+    pub fn generate<W: Write>(
+        self,
+        w: &mut W,
+        dfg: &DataFlowGraph,
+        regs: &RegAlloc,
+        reg_cache: &mut HashMap<RegId, i32>,
+        epilogue: Option<&str>,
+    ) -> Result<()> {
         match dfg.value(self.0).kind() {
             ValueKind::Return(ret) => {
                 if let Some(val) = ret.value() {
                     // Load the return value to a0.
-                    Codegen(val).load_value_to_reg(w, dfg, regs, RegId::A0)?;
+                    Codegen(val).load_value_to_reg(w, dfg, regs, RegId::A0, reg_cache)?;
+                }
+                if let Some(epilogue) = epilogue {
+                    writeln!(w, "    {}", epilogue)?;
                 }
                 writeln!(w, "    ret")
             }
             ValueKind::Binary(bin) => {
-                let lhs = Codegen(bin.lhs()).load_value(w, dfg, regs, RegId::T0)?;
-                let rhs = Codegen(bin.rhs()).load_value(w, dfg, regs, RegId::T1)?;
+                let lhs = Codegen(bin.lhs()).load_value(w, dfg, regs, RegId::T0, reg_cache)?;
+                let rhs = Codegen(bin.rhs()).load_value(w, dfg, regs, RegId::T1, reg_cache)?;
 
                 // Get the register that stores the result.
                 // If the result will be stored in stack, use a0 as the temporary register.
@@ -150,10 +173,11 @@ impl Codegen<koopa::ir::entities::Value> {
         dfg: &DataFlowGraph,
         regs: &RegAlloc,
         temp: RegId,
+        reg_cache: &mut HashMap<RegId, i32>,
     ) -> Result<RegId> {
         let data = self.data(dfg);
         if data.is_const() {
-            data.load_const(w, temp)
+            data.load_const(w, temp, reg_cache)
         } else {
             match regs.get(self.0) {
                 Storage::Reg(reg) => Ok(reg),
@@ -172,8 +196,9 @@ impl Codegen<koopa::ir::entities::Value> {
         dfg: &DataFlowGraph,
         regs: &RegAlloc,
         reg: RegId,
+        reg_cache: &mut HashMap<RegId, i32>,
     ) -> Result<()> {
-        let res = self.load_value(w, dfg, regs, reg)?;
+        let res = self.load_value(w, dfg, regs, reg, reg_cache)?;
         if res != reg {
             writeln!(w, "    mv {}, {}", reg, res)?;
         }
@@ -184,13 +209,21 @@ impl Codegen<koopa::ir::entities::Value> {
 impl Codegen<&koopa::ir::entities::ValueData> {
     /// Load a constant.
     /// Return the register that contains the constant.
-    pub fn load_const<W: Write>(self, w: &mut W, temp: RegId) -> Result<RegId> {
+    pub fn load_const<W: Write>(
+        self,
+        w: &mut W,
+        temp: RegId,
+        reg_cache: &mut HashMap<RegId, i32>,
+    ) -> Result<RegId> {
         match self.0.kind() {
             ValueKind::Integer(i) => {
                 if i.value() == 0 {
                     Ok(RegId::X0)
                 } else {
-                    writeln!(w, "    li {}, {}", temp, i.value())?;
+                    if reg_cache.get(&temp) != Some(&i.value()) {
+                        writeln!(w, "    li {}, {}", temp, i.value())?;
+                        reg_cache.insert(temp, i.value());
+                    }
                     Ok(temp)
                 }
             }
@@ -201,8 +234,13 @@ impl Codegen<&koopa::ir::entities::ValueData> {
 
     /// Load a constant to a register.
     #[allow(dead_code)]
-    pub fn load_const_to_reg<W: Write>(self, w: &mut W, reg: RegId) -> Result<()> {
-        let res = self.load_const(w, reg)?;
+    pub fn load_const_to_reg<W: Write>(
+        self,
+        w: &mut W,
+        reg: RegId,
+        reg_cache: &mut HashMap<RegId, i32>,
+    ) -> Result<()> {
+        let res = self.load_const(w, reg, reg_cache)?;
         if res != reg {
             writeln!(w, "    mv {}, {}", reg, res)?;
         }
@@ -210,9 +248,6 @@ impl Codegen<&koopa::ir::entities::ValueData> {
     }
 
     fn is_const(&self) -> bool {
-        matches!(
-            self.0.kind(),
-            ValueKind::Integer(_) | ValueKind::ZeroInit(_)
-        )
+        irutils::is_const(self.0)
     }
 }

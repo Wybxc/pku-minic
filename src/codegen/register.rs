@@ -15,6 +15,8 @@ use std::{
 
 use koopa::ir::{dfg::DataFlowGraph, FunctionData, Value, ValueKind};
 
+use crate::irutils;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegId {
     X0,
@@ -127,6 +129,12 @@ impl RegAlloc {
                         }
                     }
                 }
+                log::debug!(
+                    "VLA: live out ({:?}){} {:?}",
+                    inst,
+                    irutils::dbg_inst(inst, func.dfg()),
+                    ops
+                );
                 live_out.insert(inst, ops);
             }
         }
@@ -193,10 +201,8 @@ impl RegAlloc {
 }
 
 /// Get operands of an instruction, only return variables.
-///
-/// Variables are values that have a name.
 fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
-    let is_var = |&v: &Value| dfg.value(v).name().is_some();
+    let is_var = |&v: &Value| !irutils::is_const(dfg.value(v));
     match dfg.value(value).kind() {
         ValueKind::Return(ret) => {
             let val = ret.value().filter(is_var);

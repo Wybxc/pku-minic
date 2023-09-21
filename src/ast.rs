@@ -35,7 +35,15 @@ pub enum Stmt {
 /// Expression
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Unary { op: UnaryOp, expr: Box<Expr> },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
     Number(i32),
 }
 
@@ -45,4 +53,14 @@ pub enum UnaryOp {
     Pos,
     Neg,
     Not,
+}
+
+/// Binary Operator
+#[derive(Debug, Clone)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
 }

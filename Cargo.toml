@@ -9,10 +9,12 @@ description = "A compiler for the SysY language"
 ariadne = { version = "0.3.0", features = ["concolor"] }
 clio = "0.3.4"
 concolor = { version = "0.1.1", features = ["auto"] }
+env_logger = "0.10.0"
 eyre = "0.6.8"
 human-panic = "1.2.0"
 koopa = "0.0.7"
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }
+log = "0.4.20"
 regex = "1.9.5"
 yansi = "0.5.1"
 

@@ -1,5 +1,5 @@
 //! Build IR from AST.
-//! 
+//!
 //! TODO: Sanity check.
 //!   - [ ] Check if all variables are declared before use.
 //!   - [ ] Check if all instructions have unique value id.
@@ -91,6 +91,38 @@ impl ast::Expr {
                         let not = dfg.new_value().binary(BinaryOp::Eq, expr, zero);
                         push_inst(func, block, not);
                         not
+                    }
+                }
+            }
+            ast::Expr::Binary { op, lhs, rhs } => {
+                let lhs = lhs.build_ir_in(func, block);
+                let rhs = rhs.build_ir_in(func, block);
+                let dfg = func.dfg_mut();
+                match op {
+                    ast::BinaryOp::Add => {
+                        let add = dfg.new_value().binary(BinaryOp::Add, lhs, rhs);
+                        push_inst(func, block, add);
+                        add
+                    }
+                    ast::BinaryOp::Sub => {
+                        let sub = dfg.new_value().binary(BinaryOp::Sub, lhs, rhs);
+                        push_inst(func, block, sub);
+                        sub
+                    }
+                    ast::BinaryOp::Mul => {
+                        let mul = dfg.new_value().binary(BinaryOp::Mul, lhs, rhs);
+                        push_inst(func, block, mul);
+                        mul
+                    }
+                    ast::BinaryOp::Div => {
+                        let div = dfg.new_value().binary(BinaryOp::Div, lhs, rhs);
+                        push_inst(func, block, div);
+                        div
+                    }
+                    ast::BinaryOp::Mod => {
+                        let rem = dfg.new_value().binary(BinaryOp::Mod, lhs, rhs);
+                        push_inst(func, block, rem);
+                        rem
                     }
                 }
             }

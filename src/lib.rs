@@ -9,6 +9,7 @@ pub(crate) mod ast;
 
 mod codegen;
 mod irgen;
+pub(crate) mod irutils;
 
 lalrpop_mod!(sysy);
 
