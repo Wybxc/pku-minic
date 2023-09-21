@@ -7,8 +7,9 @@ use lalrpop_util::lalrpop_mod;
 
 pub(crate) mod ast;
 
-mod code_gen;
-mod ir_gen;
+mod codegen;
+mod irgen;
+pub(crate) mod irutils;
 
 lalrpop_mod!(sysy);
 
@@ -63,7 +64,7 @@ pub fn compile<'a>(input: &'a str, filename: &'a str) -> Result<koopa::ir::Progr
 
 /// Generate code from Koopa IR.
 pub fn codegen(ir: koopa::ir::Program, mut w: impl std::io::Write) -> std::io::Result<()> {
-    use code_gen::Codegen;
+    use codegen::Codegen;
 
-    ir.generate(&mut w)
+    Codegen(&ir).generate(&mut w)
 }

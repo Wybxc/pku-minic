@@ -29,5 +29,46 @@ pub struct Block {
 /// Statement
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Return { num: i32 },
+    Return { expr: Expr },
+}
+
+/// Expression
+#[derive(Debug, Clone)]
+pub enum Expr {
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Number(i32),
+}
+
+/// Unary Operator
+#[derive(Debug, Clone)]
+pub enum UnaryOp {
+    Pos,
+    Neg,
+    Not,
+}
+
+/// Binary Operator
+#[derive(Debug, Clone)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+    LAnd,
+    LOr,
 }
