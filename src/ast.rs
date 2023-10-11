@@ -23,7 +23,39 @@ pub enum FuncType {
 /// Block
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub stmt: Stmt,
+    pub items: Vec<BlockItem>,
+}
+
+/// Block Item
+#[derive(Debug, Clone)]
+pub enum BlockItem {
+    Decl { decl: Decl },
+    Stmt { stmt: Stmt },
+}
+
+/// Declaration
+#[derive(Debug, Clone)]
+pub enum Decl {
+    Const { ty: BType, defs: Vec<ConstDef> },
+}
+
+/// Constant Declaration
+#[derive(Debug, Clone)]
+pub struct ConstDef {
+    pub ident: String,
+    pub expr: ConstExpr,
+}
+
+/// Basic Type
+#[derive(Debug, Clone)]
+pub enum BType {
+    Int,
+}
+
+/// Constant Expression
+#[derive(Debug, Clone)]
+pub struct ConstExpr {
+    pub expr: Expr,
 }
 
 /// Statement
@@ -45,6 +77,7 @@ pub enum Expr {
         rhs: Box<Expr>,
     },
     Number(i32),
+    LVar(String),
 }
 
 /// Unary Operator

@@ -24,7 +24,31 @@ FuncDef: FuncDef = {
 
 FuncType: FuncType = "int" => FuncType::Int;
 
-Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
+Block: Block = "{" <items: BlockItem*> "}" => Block { <> };
+
+BlockItem: BlockItem = {
+  <stmt: Stmt> => BlockItem::Stmt { <> },
+  <decl: Decl> => BlockItem::Decl { <> },
+};
+
+Decl: Decl = {
+  <const_decl: ConstDecl> => <>,
+};
+
+ConstDecl: Decl = {
+  "const" <ty: BType> <mut defs: (<ConstDef> ",")*> <def: ConstDef> ";" => {
+    defs.push(def);
+    Decl::Const { ty, defs }
+  },
+}
+
+BType: BType = "int" => BType::Int;
+
+ConstDef: ConstDef = {
+  <ident: Ident> "=" <expr: ConstExpr> => ConstDef { <> },
+};
+
+ConstExpr: ConstExpr = <expr: Expr> => ConstExpr { <> };
 
 Stmt: Stmt = "return" <expr: Expr> ";" => Stmt::Return { <> };
 
@@ -32,6 +56,7 @@ Expr: Expr = <expr: LOrExpr> => <>;
 
 PrimaryExpr: Expr = {
   <num: Number> => Expr::Number(<>),
+  Ident => Expr::LVar(<>),
   "(" <expr: Expr> ")" => <>,
 };
 
