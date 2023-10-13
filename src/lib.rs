@@ -59,7 +59,8 @@ pub fn compile<'a>(input: &'a str, filename: &'a str) -> Result<koopa::ir::Progr
 
         Box::new(report)
     })?;
-    Ok(ast.build_ir())
+    let ir = ast.build_ir().map_err(|e| Box::new(e.report(filename)))?;
+    Ok(ir)
 }
 
 /// Generate code from Koopa IR.

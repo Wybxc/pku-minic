@@ -290,6 +290,9 @@ impl NonSpanned for String {}
 pub trait Spanned {
     fn start_pos(&self) -> usize;
     fn end_pos(&self) -> usize;
+    fn span(&self) -> (usize, usize) {
+        (self.start_pos(), self.end_pos())
+    }
 }
 
 pub trait NonSpanned {

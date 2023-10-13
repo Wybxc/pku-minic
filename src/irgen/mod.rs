@@ -5,6 +5,7 @@
 //!   - [ ] Check if all instructions have unique value id.
 
 use crate::ast;
+use crate::ast::Spanned;
 use koopa::ir::builder_traits::*;
 use koopa::ir::*;
 
@@ -16,22 +17,22 @@ use symtable::{Symbol, SymbolTable};
 
 impl ast::CompUnit {
     /// Build IR from AST.
-    pub fn build_ir(self) -> Program {
+    pub fn build_ir(self) -> Result<Program> {
         let mut symtable = SymbolTable::new();
         let mut program = Program::new();
-        self.build_ir_in(&mut symtable, &mut program);
-        program
+        self.build_ir_in(&mut symtable, &mut program)?;
+        Ok(program)
     }
 
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, program: &mut Program) {
-        self.func_def.build_ir_in(symtable, program);
+    pub fn build_ir_in(self, symtable: &mut SymbolTable, program: &mut Program) -> Result<()> {
+        self.func_def.build_ir_in(symtable, program)
     }
 }
 
 impl ast::FuncDef {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, program: &mut Program) {
+    pub fn build_ir_in(self, symtable: &mut SymbolTable, program: &mut Program) -> Result<()> {
         let func = program.new_func(FunctionData::with_param_names(
             format!("@{}", self.ident.node),
             vec![],
@@ -39,7 +40,7 @@ impl ast::FuncDef {
         ));
         let func_data = program.func_mut(func);
 
-        self.block.node.build_ir_in(symtable, func_data);
+        self.block.node.build_ir_in(symtable, func_data)
     }
 }
 
@@ -54,13 +55,15 @@ impl ast::FuncType {
 
 impl ast::Block {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, func: &mut FunctionData) {
+    pub fn build_ir_in(self, symtable: &mut SymbolTable, func: &mut FunctionData) -> Result<()> {
         let entry = func.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         func.layout_mut().bbs_mut().extend([entry]);
 
         for item in self.items {
-            item.build_ir_in(symtable, func, entry);
+            item.build_ir_in(symtable, func, entry)?;
         }
+
+        Ok(())
     }
 }
 
@@ -71,11 +74,12 @@ impl ast::BlockItem {
         symtable: &mut SymbolTable,
         func: &mut FunctionData,
         block: BasicBlock,
-    ) {
+    ) -> Result<()> {
         match self {
             ast::BlockItem::Decl { decl } => decl.build_ir_in(symtable, func, block),
-            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, func, block),
+            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, func, block)?,
         }
+        Ok(())
     }
 }
 
@@ -119,16 +123,17 @@ impl ast::ConstExpr {
 
 impl ast::Stmt {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &SymbolTable, func: &mut FunctionData, block: BasicBlock) {
+    pub fn build_ir_in(self, symtable: &SymbolTable, func: &mut FunctionData, block: BasicBlock) -> Result<()> {
         match self {
             ast::Stmt::Return { expr } => {
-                let expr = expr.build_ir_in(symtable, func, block);
+                let expr = expr.build_ir_in(symtable, func, block)?;
                 let dfg = func.dfg_mut();
                 let ret = dfg.new_value().ret(Some(expr));
 
                 push_inst(func, block, ret);
             }
         }
+        Ok(())
     }
 }
 
@@ -139,10 +144,10 @@ impl ast::Expr {
         symtable: &SymbolTable,
         func: &mut FunctionData,
         block: BasicBlock,
-    ) -> Value {
-        match self {
+    ) -> Result<Value> {
+        Ok(match self {
             ast::Expr::Unary { op, expr } => {
-                let expr = expr.build_ir_in(symtable, func, block);
+                let expr = expr.build_ir_in(symtable, func, block)?;
                 match op.node {
                     ast::UnaryOp::Pos => expr,
                     ast::UnaryOp::Neg => {
@@ -162,8 +167,8 @@ impl ast::Expr {
                 }
             }
             ast::Expr::Binary { op, lhs, rhs } => {
-                let lhs = lhs.build_ir_in(symtable, func, block);
-                let rhs = rhs.build_ir_in(symtable, func, block);
+                let lhs = lhs.build_ir_in(symtable, func, block)?;
+                let rhs = rhs.build_ir_in(symtable, func, block)?;
                 let dfg = func.dfg_mut();
                 match op.node {
                     ast::BinaryOp::Add => {
@@ -253,8 +258,10 @@ impl ast::Expr {
             ast::Expr::LVar(name) => {
                 let var = symtable
                     .get_var(&name.node)
-                    .ok_or(CompileError::VariableNotFound(name.node))
-                    .unwrap(); // todo: error handling
+                    .ok_or(CompileError::VariableNotFound {
+                        span: name.span(),
+                        ident: name.node,
+                    })?; // todo: error handling
                 match var {
                     Symbol::Const(num) => {
                         let dfg = func.dfg_mut();
@@ -263,7 +270,7 @@ impl ast::Expr {
                     }
                 }
             }
-        }
+        })
     }
 
     /// Const evaluation.
@@ -300,7 +307,10 @@ impl ast::Expr {
             ast::Expr::LVar(name) => {
                 let var = symtable
                     .get_var(&name.node)
-                    .ok_or(CompileError::VariableNotFound(name.node))?;
+                    .ok_or(CompileError::VariableNotFound {
+                        span: name.span(),
+                        ident: name.node,
+                    })?;
                 match var {
                     Symbol::Const(num) => *num,
                 }

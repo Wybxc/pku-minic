@@ -19,4 +19,7 @@ RUN (curl -sS https://starship.rs/install.sh > /tmp/starship.rs)\
  && (echo 'eval "$(starship init bash)"' >> /root/.bashrc)
 COPY ./starship.toml /root/.config/starship.toml
 
+# Install tokei
+RUN cargo install tokei
+
 CMD ["/bin/bash"]
