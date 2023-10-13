@@ -18,13 +18,13 @@ pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
 
 FuncDef: FuncDef = {
   <func_type: FuncType> <ident: Ident> "(" ")" <block: Block> => {
-    FuncDef { <> }
+    FuncDef { func_type, ident, block }
   }
 }
 
-FuncType: FuncType = "int" => FuncType::Int;
+FuncType: Span<FuncType> = <start:@L> "int" <end:@R> => FuncType::Int.into_span(start, end);
 
-Block: Block = "{" <items: BlockItem*> "}" => Block { <> };
+Block: Span<Block> = <start:@L> "{" <items: BlockItem*> "}" <end:@R> => Block { items }.into_span(start, end);
 
 BlockItem: BlockItem = {
   <stmt: Stmt> => BlockItem::Stmt { <> },
@@ -32,17 +32,17 @@ BlockItem: BlockItem = {
 };
 
 Decl: Decl = {
-  <const_decl: ConstDecl> => <>,
+  <const_decl: ConstDecl> => Decl::Const(<>),
 };
 
-ConstDecl: Decl = {
-  "const" <ty: BType> <mut defs: (<ConstDef> ",")*> <def: ConstDef> ";" => {
+ConstDecl: Span<ConstDecl> = {
+  <start:@L> "const" <ty: BType> <mut defs: (<ConstDef> ",")*> <def: ConstDef> ";" <end:@R> => {
     defs.push(def);
-    Decl::Const { ty, defs }
+    ConstDecl { ty, defs }.into_span(start, end)
   },
 }
 
-BType: BType = "int" => BType::Int;
+BType: Span<BType> = <start:@L> "int" <end:@R> => BType::Int.into_span(start, end);
 
 ConstDef: ConstDef = {
   <ident: Ident> "=" <expr: ConstExpr> => ConstDef { <> },
@@ -50,7 +50,7 @@ ConstDef: ConstDef = {
 
 ConstExpr: ConstExpr = <expr: Expr> => ConstExpr { <> };
 
-Stmt: Stmt = "return" <expr: Expr> ";" => Stmt::Return { <> };
+Stmt: Span<Stmt> = <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end);
 
 Expr: Expr = <expr: LOrExpr> => <>;
 
@@ -65,10 +65,10 @@ UnaryExpr: Expr = {
   <op: UnaryOp> <expr: UnaryExpr> => Expr::Unary { op, expr: Box::new(expr) },
 };
 
-UnaryOp: UnaryOp = {
-  "+" => UnaryOp::Pos,
-  "-" => UnaryOp::Neg,
-  "!" => UnaryOp::Not,
+UnaryOp: Span<UnaryOp> = {
+  <start:@L> "+" <end:@R> => UnaryOp::Pos.into_span(start, end),
+  <start:@L> "-" <end:@R> => UnaryOp::Neg.into_span(start, end),
+  <start:@L> "!" <end:@R> => UnaryOp::Not.into_span(start, end),
 };
 
 MulExpr: Expr = {
@@ -80,10 +80,10 @@ MulExpr: Expr = {
   <expr: UnaryExpr> => <>,
 };
 
-MulOp: BinaryOp = {
-  "*" => BinaryOp::Mul,
-  "/" => BinaryOp::Div,
-  "%" => BinaryOp::Mod,
+MulOp: Span<BinaryOp> = {
+  <start:@L> "*" <end:@R> => BinaryOp::Mul.into_span(start, end),
+  <start:@L> "/" <end:@R> => BinaryOp::Div.into_span(start, end),
+  <start:@L> "%" <end:@R> => BinaryOp::Mod.into_span(start, end),
 };
 
 AddExpr: Expr = {
@@ -95,9 +95,9 @@ AddExpr: Expr = {
   <expr: MulExpr> => <>,
 };
 
-AddOp: BinaryOp = {
-  "+" => BinaryOp::Add,
-  "-" => BinaryOp::Sub,
+AddOp: Span<BinaryOp> = {
+  <start:@L> "+" <end:@R> => BinaryOp::Add.into_span(start, end),
+  <start:@L> "-" <end:@R> => BinaryOp::Sub.into_span(start, end),
 };
 
 RelExpr: Expr = {
@@ -109,11 +109,11 @@ RelExpr: Expr = {
   <expr: AddExpr> => <>,
 };
 
-RelOp: BinaryOp = {
-  "<" => BinaryOp::Lt,
-  "<=" => BinaryOp::LtEq,
-  ">" => BinaryOp::Gt,
-  ">=" => BinaryOp::GtEq,
+RelOp: Span<BinaryOp> = {
+  <start:@L> "<" <end:@R> => BinaryOp::Lt.into_span(start, end),
+  <start:@L> "<=" <end:@R> => BinaryOp::Le.into_span(start, end),
+  <start:@L> ">" <end:@R> => BinaryOp::Gt.into_span(start, end),
+  <start:@L> ">=" <end:@R> => BinaryOp::Ge.into_span(start, end),
 };
 
 EqExpr: Expr = {
@@ -125,14 +125,14 @@ EqExpr: Expr = {
   <expr: RelExpr> => <>,
 };
 
-EqOp: BinaryOp = {
-  "==" => BinaryOp::Eq,
-  "!=" => BinaryOp::NotEq,
+EqOp: Span<BinaryOp> = {
+  <start:@L> "==" <end:@R> => BinaryOp::Eq.into_span(start, end),
+  <start:@L> "!=" <end:@R> => BinaryOp::Ne.into_span(start, end),
 };
 
 LAndExpr: Expr = {
-  <lhs: LAndExpr> "&&" <rhs: EqExpr> => Expr::Binary {
-    op: BinaryOp::LAnd,
+  <lhs: LAndExpr> <start:@L> "&&" <end:@R> <rhs: EqExpr> => Expr::Binary {
+    op: BinaryOp::LAnd.into_span(start, end),
     lhs: Box::new(lhs),
     rhs: Box::new(rhs),
   },
@@ -140,17 +140,18 @@ LAndExpr: Expr = {
 };
 
 LOrExpr: Expr = {
-  <lhs: LOrExpr> "||" <rhs: LAndExpr> => Expr::Binary {
-    op: BinaryOp::LOr,
+  <lhs: LOrExpr> <start:@L> "||" <end:@R> <rhs: LAndExpr> => Expr::Binary {
+    op: BinaryOp::LOr.into_span(start, end),
     lhs: Box::new(lhs),
     rhs: Box::new(rhs),
   },
   <expr: LAndExpr> => <>,
 };
 
-Number: i32 = <num: IntConst> => <>;
+Number: Span<i32> = <start:@L> <num: IntConst> <end:@R> => num.into_span(start, end);
 
-Ident: String = r"[_a-zA-Z][_a-zA-Z0-9]*" => <>.to_string();
+Ident: Span<String> = <start:@L> <ident: r"[a-zA-Z_][a-zA-Z0-9_]*"> <end:@R> => 
+  ident.to_string().into_span(start, end);
 
 IntConst: i32 = {
   r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
