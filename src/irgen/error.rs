@@ -15,8 +15,14 @@ pub enum CompileError {
     #[error("variable not found")]
     #[diagnostic(code(minic::var_not_found))]
     VariableNotFound {
-        ident: String,
         #[label("not found")]
+        span: SourceSpan,
+    },
+
+    #[error("cannot assign to constant")]
+    #[diagnostic(code(minic::assign_to_const))]
+    AssignToConst {
+        #[label("cannot assign to constant")]
         span: SourceSpan,
     },
 }

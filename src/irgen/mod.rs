@@ -197,7 +197,24 @@ impl ast::Stmt {
         block: BasicBlock,
     ) -> Result<()> {
         match self {
-            ast::Stmt::Assign { ident, expr } => todo!(),
+            ast::Stmt::Assign { ident, expr } => {
+                // Get the variable.
+                let span = ident.span().into();
+                let var = symtable
+                    .get_var(&ident.node)
+                    .ok_or(CompileError::VariableNotFound { span })?;
+                let var = match var {
+                    Symbol::Const(_) => Err(CompileError::AssignToConst { span })?,
+                    Symbol::Var(var) => *var,
+                };
+
+                // Compute the expression.
+                let expr = expr.build_ir_in(symtable, func, block)?;
+
+                // Store the value.
+                let store = func.dfg_mut().new_value().store(expr, var);
+                push_inst(func, block, store);
+            }
             ast::Stmt::Return { expr } => {
                 let expr = expr.build_ir_in(symtable, func, block)?;
                 let dfg = func.dfg_mut();
@@ -333,7 +350,6 @@ impl ast::Expr {
                     .get_var(&name.node)
                     .ok_or(CompileError::VariableNotFound {
                         span: name.span().into(),
-                        ident: name.node,
                     })?; // todo: error handling
                 match var {
                     Symbol::Const(num) => {
@@ -387,10 +403,7 @@ impl ast::Expr {
                 let span = name.span().into();
                 let var = symtable
                     .get_var(&name.node)
-                    .ok_or(CompileError::VariableNotFound {
-                        span,
-                        ident: name.node,
-                    })?;
+                    .ok_or(CompileError::VariableNotFound { span })?;
                 match var {
                     Symbol::Const(num) => *num,
                     Symbol::Var(_) => Err(CompileError::NonConstantExpression { span })?,
