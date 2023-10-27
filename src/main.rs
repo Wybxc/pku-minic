@@ -113,17 +113,23 @@ fn main() -> Result<()> {
 /// * `_underline_`
 /// * `*bold*`
 fn markup(s: &str) -> String {
+    use owo_colors::*;
     use regex::{Captures, Regex};
-    use colored::*;
 
     Regex::new(r"_(?P<underline>.*?)_|\*(?P<bold>.*?)\*")
         .unwrap()
         .replace_all(s, |caps: &Captures| {
             if let Some(s) = caps.name("bold") {
-                return s.as_str().bold().to_string();
+                return s
+                    .as_str()
+                    .if_supports_color(Stream::Stdout, |s| s.bold())
+                    .to_string();
             }
             if let Some(s) = caps.name("underline") {
-                return s.as_str().bold().underline().to_string();
+                return s
+                    .as_str()
+                    .if_supports_color(Stream::Stdout, |&s| s.bold().underline().to_string())
+                    .to_string();
             }
             unreachable!()
         })
