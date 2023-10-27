@@ -79,9 +79,8 @@ impl ast::BlockItem {
     ) -> Result<()> {
         match self {
             ast::BlockItem::Decl { decl } => decl.build_ir_in(symtable, func, block),
-            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, func, block)?,
+            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, func, block),
         }
-        Ok(())
     }
 }
 
@@ -90,12 +89,22 @@ impl ast::Decl {
     pub fn build_ir_in(
         self,
         symtable: &mut SymbolTable,
-        _func: &mut FunctionData,
-        _block: BasicBlock,
-    ) {
+        func: &mut FunctionData,
+        block: BasicBlock,
+    ) -> Result<()> {
         match self {
             ast::Decl::Const(const_decl) => const_decl.node.build_ir_in(symtable),
-            ast::Decl::Var(var_decl) => todo!(),
+            ast::Decl::Var(var_decl) => var_decl.node.build_ir_in(symtable, func, block)?,
+        }
+        Ok(())
+    }
+}
+
+impl ast::BType {
+    /// Build IR from AST.
+    pub fn build_ir(&self) -> Type {
+        match self {
+            ast::BType::Int => Type::get_i32(),
         }
     }
 }
@@ -121,6 +130,61 @@ impl ast::ConstExpr {
     /// Const evaluation.
     pub fn const_eval(self, symtable: &SymbolTable) -> Result<i32> {
         self.expr.const_eval(symtable)
+    }
+}
+
+impl ast::VarDecl {
+    /// Build IR from AST in an existing IR node.
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        func: &mut FunctionData,
+        block: BasicBlock,
+    ) -> Result<()> {
+        for def in self.defs {
+            def.build_ir_in(symtable, &self.ty.node, func, block)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl ast::VarDef {
+    /// Build IR from AST in an existing IR node.
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        ty: &ast::BType,
+        func: &mut FunctionData,
+        block: BasicBlock,
+    ) -> Result<()> {
+        // Allocate a new variable.
+        let var = func.dfg_mut().new_value().alloc(ty.build_ir());
+        push_inst(func, block, var);
+
+        // Initialize the variable.
+        if let Some(init) = self.init {
+            let init = init.build_ir_in(symtable, func, block)?;
+            let store = func.dfg_mut().new_value().store(init, var);
+            push_inst(func, block, store);
+        }
+
+        // Insert the variable into the symbol table.
+        symtable.insert_var(self.ident.node, Symbol::Var(var));
+
+        Ok(())
+    }
+}
+
+impl ast::InitVal {
+    /// Build IR from AST in an existing IR node.
+    pub fn build_ir_in(
+        self,
+        symtable: &SymbolTable,
+        func: &mut FunctionData,
+        block: BasicBlock,
+    ) -> Result<Value> {
+        self.expr.build_ir_in(symtable, func, block)
     }
 }
 
@@ -276,6 +340,12 @@ impl ast::Expr {
                         let num = dfg.new_value().integer(*num);
                         num
                     }
+                    Symbol::Var(var) => {
+                        let dfg = func.dfg_mut();
+                        let load = dfg.new_value().load(*var);
+                        push_inst(func, block, load);
+                        load
+                    }
                 }
             }
         })
@@ -313,14 +383,16 @@ impl ast::Expr {
             }
             ast::Expr::Number(num) => num.node,
             ast::Expr::LVar(name) => {
+                let span = name.span().into();
                 let var = symtable
                     .get_var(&name.node)
                     .ok_or(CompileError::VariableNotFound {
-                        span: name.span().into(),
+                        span,
                         ident: name.node,
                     })?;
                 match var {
                     Symbol::Const(num) => *num,
+                    Symbol::Var(_) => Err(CompileError::NonConstantExpression { span })?,
                 }
             }
         })
