@@ -248,10 +248,14 @@ impl Spanned for ConstExpr {
 /// Statement
 ///
 /// ```text
-/// Stmt ::= ReturnStmt
+/// Stmt ::= LVal "=" Exp ";" | "return" Exp ";";
 /// ```
 #[derive(Debug, Clone)]
 pub enum Stmt {
+    Assign {
+        ident: Span<String>,
+        expr: Expr,
+    },
     Return { expr: Expr },
 }
 

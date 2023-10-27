@@ -67,7 +67,10 @@ InitVal: InitVal = {
   <expr: Expr> => InitVal { <> },
 };
 
-Stmt: Span<Stmt> = <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end);
+Stmt: Span<Stmt> = {
+  <start:@L> <ident: Ident> "=" <expr: Expr> ";" <end:@R> => Stmt::Assign { ident, expr }.into_span(start, end),
+  <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end)
+};
 
 Expr: Expr = <expr: LOrExpr> => <>;
 

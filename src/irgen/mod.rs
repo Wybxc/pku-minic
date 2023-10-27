@@ -197,6 +197,7 @@ impl ast::Stmt {
         block: BasicBlock,
     ) -> Result<()> {
         match self {
+            ast::Stmt::Assign { ident, expr } => todo!(),
             ast::Stmt::Return { expr } => {
                 let expr = expr.build_ir_in(symtable, func, block)?;
                 let dfg = func.dfg_mut();
