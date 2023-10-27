@@ -11,8 +11,10 @@ pub(crate) mod irutils;
 
 lalrpop_mod!(sysy);
 
-use miette::{Diagnostic, Result, SourceSpan};
+use miette::{Diagnostic, Result, SourceSpan, IntoDiagnostic};
 use thiserror::Error;
+
+use crate::irgen::metadata::ProgramMetadata;
 
 /// Parse error
 #[derive(Debug, Error, Diagnostic)]
@@ -66,7 +68,7 @@ pub enum MinicParseError {
 }
 
 /// Compile SysY source code to Koopa IR.
-pub fn compile(input: &str) -> Result<koopa::ir::Program> {
+pub fn compile(input: &str) -> Result<(koopa::ir::Program, ProgramMetadata)> {
     let ast = sysy::CompUnitParser::new().parse(input).map_err(|e| {
         use lalrpop_util::ParseError;
 
@@ -97,8 +99,9 @@ pub fn compile(input: &str) -> Result<koopa::ir::Program> {
 }
 
 /// Generate code from Koopa IR.
-pub fn codegen(ir: koopa::ir::Program, mut w: impl std::io::Write) -> std::io::Result<()> {
+pub fn codegen(ir: koopa::ir::Program, metadata: &ProgramMetadata, mut w: impl std::io::Write) -> Result<()> {
     use codegen::Codegen;
 
-    Codegen(&ir).generate(&mut w)
+    let program = Codegen(&ir).generate(metadata)?;
+    write!(w, "{}", program).into_diagnostic()
 }

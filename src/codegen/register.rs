@@ -8,57 +8,18 @@
 //! We allocate 1 register for each instruction with a result, and
 //! reserve 3 registers for temporary storage.
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-};
+use std::collections::{HashMap, HashSet};
 
 use koopa::ir::{dfg::DataFlowGraph, FunctionData, Value, ValueKind};
+use miette::Result;
 
-use crate::irutils;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RegId {
-    X0,
-    A0,
-    A1,
-    A2,
-    A3,
-    A4,
-    A5,
-    A6,
-    A7,
-    T0,
-    T1,
-    T2,
-    T3,
-    T4,
-    T5,
-    T6,
-}
-
-impl Display for RegId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RegId::X0 => write!(f, "x0"),
-            RegId::A0 => write!(f, "a0"),
-            RegId::A1 => write!(f, "a1"),
-            RegId::A2 => write!(f, "a2"),
-            RegId::A3 => write!(f, "a3"),
-            RegId::A4 => write!(f, "a4"),
-            RegId::A5 => write!(f, "a5"),
-            RegId::A6 => write!(f, "a6"),
-            RegId::A7 => write!(f, "a7"),
-            RegId::T0 => write!(f, "t0"),
-            RegId::T1 => write!(f, "t1"),
-            RegId::T2 => write!(f, "t2"),
-            RegId::T3 => write!(f, "t3"),
-            RegId::T4 => write!(f, "t4"),
-            RegId::T5 => write!(f, "t5"),
-            RegId::T6 => write!(f, "t6"),
-        }
-    }
-}
+use super::riscv::RegId;
+use crate::{
+    ast::Spanned,
+    codegen::{error::CodegenError, imm::i12},
+    irgen::metadata::FunctionMetadata,
+    irutils,
+};
 
 /// Storage for a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,7 +27,7 @@ pub enum Storage {
     /// Register.
     Reg(RegId),
     /// Stack offset from sp, in bytes.
-    Slot(u32),
+    Slot(i12),
 }
 
 /// Count of registers that can be used.
@@ -101,11 +62,11 @@ impl Storage {
 
 pub struct RegAlloc {
     map: HashMap<Value, Storage>,
-    frame_size: u32,
+    frame_size: i12,
 }
 
 impl RegAlloc {
-    pub fn new(func: &FunctionData) -> Self {
+    pub fn new(func: &FunctionData, metadata: &FunctionMetadata) -> Result<Self> {
         // Live variable analysis.
         // Currently there is no control flow, so we can do it in a simple way.
         // - live in: Which variables are live when entering a basic block?
@@ -169,7 +130,14 @@ impl RegAlloc {
                         free[reg] = false;
                     } else {
                         // No free register, spill a variable.
-                        map.insert(inst, Storage::Slot(sp));
+                        map.insert(
+                            inst,
+                            Storage::Slot(i12::try_from(sp).map_err(|_| {
+                                CodegenError::TooManyLocals {
+                                    span: metadata.name.span().into(),
+                                }
+                            })?),
+                        );
                         sp += 4;
                     }
                 }
@@ -183,10 +151,11 @@ impl RegAlloc {
             }
         }
 
-        Self {
-            map,
-            frame_size: sp,
-        }
+        let frame_size = (sp + 15) & !15;
+        let frame_size = i12::try_from(frame_size).map_err(|_| CodegenError::TooManyLocals {
+            span: metadata.name.span().into(),
+        })?;
+        Ok(Self { map, frame_size })
     }
 
     /// Get storage of a value.
@@ -195,7 +164,7 @@ impl RegAlloc {
     }
 
     /// Minimum size of stack frame, in bytes.
-    pub fn frame_size(&self) -> u32 {
+    pub fn frame_size(&self) -> i12 {
         self.frame_size
     }
 }

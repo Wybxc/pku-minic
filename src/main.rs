@@ -89,7 +89,7 @@ fn main() -> Result<()> {
     args.input.read_to_string(&mut input).into_diagnostic()?;
 
     // Compile
-    let program = match pku_minic::compile(&input) {
+    let (program, metadata) = match pku_minic::compile(&input) {
         Ok(program) => program,
         Err(diagnostic) => Err(diagnostic.with_source_code(input))?,
     };
@@ -101,7 +101,7 @@ fn main() -> Result<()> {
             gen.generate_on(&program).into_diagnostic()?;
         }
         Mode::Riscv => {
-            pku_minic::codegen(program, args.output).into_diagnostic()?;
+            pku_minic::codegen(program, &metadata, args.output)?;
         }
     }
 
