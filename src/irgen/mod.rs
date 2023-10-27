@@ -8,11 +8,13 @@ use crate::ast;
 use crate::ast::Spanned;
 use koopa::ir::builder_traits::*;
 use koopa::ir::*;
+use miette::Result;
 
 mod error;
 mod symtable;
 
-use error::{CompileError, Result};
+use error::CompileError;
+
 use symtable::{Symbol, SymbolTable};
 
 impl ast::CompUnit {
@@ -123,7 +125,12 @@ impl ast::ConstExpr {
 
 impl ast::Stmt {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &SymbolTable, func: &mut FunctionData, block: BasicBlock) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &SymbolTable,
+        func: &mut FunctionData,
+        block: BasicBlock,
+    ) -> Result<()> {
         match self {
             ast::Stmt::Return { expr } => {
                 let expr = expr.build_ir_in(symtable, func, block)?;
@@ -259,7 +266,7 @@ impl ast::Expr {
                 let var = symtable
                     .get_var(&name.node)
                     .ok_or(CompileError::VariableNotFound {
-                        span: name.span(),
+                        span: name.span().into(),
                         ident: name.node,
                     })?; // todo: error handling
                 match var {
@@ -308,7 +315,7 @@ impl ast::Expr {
                 let var = symtable
                     .get_var(&name.node)
                     .ok_or(CompileError::VariableNotFound {
-                        span: name.span(),
+                        span: name.span().into(),
                         ident: name.node,
                     })?;
                 match var {
