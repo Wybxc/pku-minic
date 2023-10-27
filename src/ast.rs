@@ -98,23 +98,26 @@ impl Spanned for BlockItem {
 /// Declaration
 ///
 /// ```text
-/// Decl ::= ConstDecl
+/// Decl ::= ConstDecl | VarDecl
 /// ```
 #[derive(Debug, Clone)]
 pub enum Decl {
     Const(Span<ConstDecl>),
+    Var(Span<VarDecl>),
 }
 
 impl Spanned for Decl {
     fn start_pos(&self) -> usize {
         match self {
             Decl::Const(decl) => decl.start_pos(),
+            Decl::Var(decl) => decl.start_pos(),
         }
     }
 
     fn end_pos(&self) -> usize {
         match self {
             Decl::Const(decl) => decl.end_pos(),
+            Decl::Var(decl) => decl.end_pos(),
         }
     }
 }
@@ -146,6 +149,63 @@ pub struct ConstDef {
 impl Spanned for ConstDef {
     fn start_pos(&self) -> usize {
         self.ident.start_pos()
+    }
+
+    fn end_pos(&self) -> usize {
+        self.expr.end_pos()
+    }
+}
+
+/// Variable Declaration
+///
+/// ```text
+/// VarDecl ::= BType VarDef {"," VarDef} ";"
+/// ```
+#[derive(Debug, Clone)]
+pub struct VarDecl {
+    pub ty: Span<BType>,
+    pub defs: Vec<VarDef>,
+}
+
+impl NonSpanned for VarDecl {}
+
+/// Variable Definition
+///
+/// ```text
+/// VarDef ::= IDENT | IDENT "=" InitVal
+/// ```
+#[derive(Debug, Clone)]
+pub struct VarDef {
+    pub ident: Span<String>,
+    pub init: Option<InitVal>,
+}
+
+impl Spanned for VarDef {
+    fn start_pos(&self) -> usize {
+        self.ident.start_pos()
+    }
+
+    fn end_pos(&self) -> usize {
+        match &self.init {
+            Some(init) => init.end_pos(),
+            None => self.ident.end_pos(),
+        }
+    }
+}
+
+/// Initial Value
+///
+/// ```text
+/// InitVal ::= Expr
+/// ```
+#[derive(Debug, Clone)]
+pub struct InitVal {
+    pub expr: Expr,
+}
+
+impl Spanned for InitVal {
+    fn start_pos(&self) -> usize {
+        self.expr.start_pos()
     }
 
     fn end_pos(&self) -> usize {

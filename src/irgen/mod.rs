@@ -95,6 +95,7 @@ impl ast::Decl {
     ) {
         match self {
             ast::Decl::Const(const_decl) => const_decl.node.build_ir_in(symtable),
+            ast::Decl::Var(var_decl) => todo!(),
         }
     }
 }

@@ -33,7 +33,10 @@ BlockItem: BlockItem = {
 
 Decl: Decl = {
   <const_decl: ConstDecl> => Decl::Const(<>),
+  <var_decl: VarDecl> => Decl::Var(<>),
 };
+
+BType: Span<BType> = <start:@L> "int" <end:@R> => BType::Int.into_span(start, end);
 
 ConstDecl: Span<ConstDecl> = {
   <start:@L> "const" <ty: BType> <mut defs: (<ConstDef> ",")*> <def: ConstDef> ";" <end:@R> => {
@@ -42,13 +45,27 @@ ConstDecl: Span<ConstDecl> = {
   },
 }
 
-BType: Span<BType> = <start:@L> "int" <end:@R> => BType::Int.into_span(start, end);
-
 ConstDef: ConstDef = {
   <ident: Ident> "=" <expr: ConstExpr> => ConstDef { <> },
 };
 
 ConstExpr: ConstExpr = <expr: Expr> => ConstExpr { <> };
+
+VarDecl: Span<VarDecl> = {
+  <start:@L> <ty: BType> <mut defs: (<VarDef> ",")*> <def: VarDef> ";" <end:@R> => {
+    defs.push(def);
+    VarDecl { ty, defs }.into_span(start, end)
+  },
+}
+
+VarDef: VarDef = {
+  <ident: Ident> => VarDef { ident, init: None },
+  <ident: Ident> "=" <init: InitVal> => VarDef { ident, init: Some(init) },
+};
+
+InitVal: InitVal = {
+  <expr: Expr> => InitVal { <> },
+};
 
 Stmt: Span<Stmt> = <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end);
 
