@@ -120,6 +120,13 @@ impl RegAlloc {
             }
 
             for &inst in node.insts().keys() {
+                // Drop dead variables.
+                for val in live_out[&inst].iter().filter_map(|&v| v) {
+                    if let Some(reg) = map[&val].local() {
+                        free[reg] = true;
+                    }
+                }
+
                 // Allocate registers for results.
                 let value = func.dfg().value(inst);
                 if !value.ty().is_unit() {
@@ -139,13 +146,6 @@ impl RegAlloc {
                             })?),
                         );
                         sp += 4;
-                    }
-                }
-
-                // Drop dead variables.
-                for val in live_out[&inst].iter().filter_map(|&v| v) {
-                    if let Some(reg) = map[&val].local() {
-                        free[reg] = true;
                     }
                 }
             }
