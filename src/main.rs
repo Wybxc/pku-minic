@@ -1,4 +1,4 @@
-use eyre::Result;
+use miette::{IntoDiagnostic, Result};
 use std::io::Read;
 
 struct Args {
@@ -79,38 +79,29 @@ fn main() -> Result<()> {
     human_panic::setup_panic!();
 
     // Setup logger
-    env_logger::init();
+    pretty_env_logger::init();
 
     // Parse command line arguments
     let mut args = Args::parse();
 
     // Read input
-    let filename = if args.input.is_local() {
-        args.input.path().path().to_str().unwrap_or("<file>")
-    } else {
-        "<file>"
-    }
-    .to_owned();
     let mut input = String::new();
-    args.input.read_to_string(&mut input)?;
+    args.input.read_to_string(&mut input).into_diagnostic()?;
 
     // Compile
-    let program = match pku_minic::compile(&input, &filename) {
+    let (program, metadata) = match pku_minic::compile(&input) {
         Ok(program) => program,
-        Err(report) => {
-            report.eprint((filename.as_str(), ariadne::Source::from(&input)))?;
-            std::process::exit(1);
-        }
+        Err(diagnostic) => Err(diagnostic.with_source_code(input))?,
     };
 
     // Generate output
     match args.mode {
         Mode::Koopa => {
             let mut gen = koopa::back::KoopaGenerator::new(args.output);
-            gen.generate_on(&program)?;
+            gen.generate_on(&program).into_diagnostic()?;
         }
         Mode::Riscv => {
-            pku_minic::codegen(program, args.output)?;
+            pku_minic::codegen(program, &metadata, args.output)?;
         }
     }
 
@@ -122,17 +113,23 @@ fn main() -> Result<()> {
 /// * `_underline_`
 /// * `*bold*`
 fn markup(s: &str) -> String {
+    use owo_colors::*;
     use regex::{Captures, Regex};
-    use yansi::Paint;
 
     Regex::new(r"_(?P<underline>.*?)_|\*(?P<bold>.*?)\*")
         .unwrap()
         .replace_all(s, |caps: &Captures| {
             if let Some(s) = caps.name("bold") {
-                return Paint::new(s.as_str()).bold().to_string();
+                return s
+                    .as_str()
+                    .if_supports_color(Stream::Stdout, |s| s.bold())
+                    .to_string();
             }
             if let Some(s) = caps.name("underline") {
-                return Paint::new(s.as_str()).bold().underline().to_string();
+                return s
+                    .as_str()
+                    .if_supports_color(Stream::Stdout, |&s| s.bold().underline().to_string())
+                    .to_string();
             }
             unreachable!()
         })

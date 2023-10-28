@@ -1,64 +1,73 @@
 //! Register allocation.
 //!
+//! ## Register usage
+//!
+//! RISC-V has 32 registers in total, 15 of which can be used for
+//! local variables.
+//!
 //! Each IR instruction will use:
 //! - 0~1 registers for result
 //! - 0~2 registers for temporary values
 //! - 0~3 registers for temporary storage of spilled values
 //!
 //! We allocate 1 register for each instruction with a result, and
-//! reserve 3 registers for temporary storage.
+//! reserve 3 registers for temporary storage. See [`REG_LOCAL_COUNT`]
+//! and [`REG_LOCAL`].
+//!
+//! ## Algorithm
+//!
+//! We adopt a static method: once a variable is assigned a register,
+//! it will not be changed.
+//!
+//! First we do a live variable analysis. Each IR instruction may drop
+//! at most 2 operands values, and generate at most 1 result value.
+//! The generated value can be obviously referred from the instruction,
+//! and we keep track of the dropped values.
+//!
+//! Currently there is no control flow, so we just scan the instructions
+//! in a basic block in reverse order, and the last appearing operand value
+//! is live out. Since Koopa IR is in SSA form, a variable will not be dropped
+//! twice in one basic block.
+//!
+//! Then we do a linear scan. We scan the instructions in a basic block,
+//! and allocate registers for results. If there is no free register,
+//! we spill a variable to the stack.
+//!
+//! ## Alloc, load and store
+//!
+//! To support non-SSA form, we need to load and store variables from/to
+//! the stack. There are three IR instructions for this:
+//! - `alloc: forall T, ref T`: Allocate a variable on the stack.
+//! - `load: ref T -> T`: Load a variable from the stack.
+//! - `store: T -> ref T -> unit`: Store a variable to the stack.
+//!
+//! We treat allocated `ref T` the same as `T`, and allocate a register
+//! or stack slot for it. The `load` and `store` instructions are lowered
+//! to data transfer from the allocated variable.
+//!
+//! The `ref T` is seen as an operand of `load` and `store`, in which case
+//! it can live in and out just as a normal variable.
+//!
+//! ## TODO
+//!
+//! - Now we always spill the newest variable, which is not optimal.
+//!   We should spill the variable that will not be used for a long time.
+//! - We do not allocate a0, t0, t1, since they are reserved for return
+//!   value and temporary storage. However, we can use them if they are
+//!   not used in some time.
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-};
+use std::collections::{HashMap, HashSet};
 
 use koopa::ir::{dfg::DataFlowGraph, FunctionData, Value, ValueKind};
+use miette::Result;
 
-use crate::irutils;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RegId {
-    X0,
-    A0,
-    A1,
-    A2,
-    A3,
-    A4,
-    A5,
-    A6,
-    A7,
-    T0,
-    T1,
-    T2,
-    T3,
-    T4,
-    T5,
-    T6,
-}
-
-impl Display for RegId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RegId::X0 => write!(f, "x0"),
-            RegId::A0 => write!(f, "a0"),
-            RegId::A1 => write!(f, "a1"),
-            RegId::A2 => write!(f, "a2"),
-            RegId::A3 => write!(f, "a3"),
-            RegId::A4 => write!(f, "a4"),
-            RegId::A5 => write!(f, "a5"),
-            RegId::A6 => write!(f, "a6"),
-            RegId::A7 => write!(f, "a7"),
-            RegId::T0 => write!(f, "t0"),
-            RegId::T1 => write!(f, "t1"),
-            RegId::T2 => write!(f, "t2"),
-            RegId::T3 => write!(f, "t3"),
-            RegId::T4 => write!(f, "t4"),
-            RegId::T5 => write!(f, "t5"),
-            RegId::T6 => write!(f, "t6"),
-        }
-    }
-}
+use super::riscv::RegId;
+use crate::{
+    ast::Spanned,
+    codegen::{error::CodegenError, imm::i12},
+    irgen::metadata::FunctionMetadata,
+    irutils,
+};
 
 /// Storage for a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,7 +75,7 @@ pub enum Storage {
     /// Register.
     Reg(RegId),
     /// Stack offset from sp, in bytes.
-    Slot(u32),
+    Slot(i12),
 }
 
 /// Count of registers that can be used.
@@ -101,11 +110,11 @@ impl Storage {
 
 pub struct RegAlloc {
     map: HashMap<Value, Storage>,
-    frame_size: u32,
+    frame_size: i12,
 }
 
 impl RegAlloc {
-    pub fn new(func: &FunctionData) -> Self {
+    pub fn new(func: &FunctionData, metadata: &FunctionMetadata) -> Result<Self> {
         // Live variable analysis.
         // Currently there is no control flow, so we can do it in a simple way.
         // - live in: Which variables are live when entering a basic block?
@@ -130,10 +139,10 @@ impl RegAlloc {
                     }
                 }
                 log::debug!(
-                    "VLA: live out ({:?}){} {:?}",
+                    "VLA: live out {:?} ({:?} {})",
+                    ops,
                     inst,
-                    irutils::dbg_inst(inst, func.dfg()),
-                    ops
+                    irutils::dbg_inst(inst, func.dfg())
                 );
                 live_out.insert(inst, ops);
             }
@@ -159,6 +168,13 @@ impl RegAlloc {
             }
 
             for &inst in node.insts().keys() {
+                // Drop dead variables.
+                for val in live_out[&inst].iter().filter_map(|&v| v) {
+                    if let Some(reg) = map[&val].local() {
+                        free[reg] = true;
+                    }
+                }
+
                 // Allocate registers for results.
                 let value = func.dfg().value(inst);
                 if !value.ty().is_unit() {
@@ -167,26 +183,43 @@ impl RegAlloc {
                         // Found a free register.
                         map.insert(inst, Storage::Reg(REG_LOCAL[reg]));
                         free[reg] = false;
+
+                        log::debug!(
+                            "REG: allocate {:?} to {:?} ({})",
+                            inst,
+                            REG_LOCAL[reg],
+                            irutils::dbg_inst(inst, func.dfg())
+                        );
                     } else {
                         // No free register, spill a variable.
-                        map.insert(inst, Storage::Slot(sp));
-                        sp += 4;
-                    }
-                }
+                        map.insert(
+                            inst,
+                            Storage::Slot(i12::try_from(sp).map_err(|_| {
+                                CodegenError::TooManyLocals {
+                                    span: metadata.name.span().into(),
+                                }
+                            })?),
+                        );
 
-                // Drop dead variables.
-                for val in live_out[&inst].iter().filter_map(|&v| v) {
-                    if let Some(reg) = map[&val].local() {
-                        free[reg] = true;
+                        log::debug!(
+                            "REG: spill {:?} to stack sp+{} ({})",
+                            inst,
+                            sp - 4,
+                            irutils::dbg_inst(inst, func.dfg())
+                        );
+
+                        sp += 4;
                     }
                 }
             }
         }
 
-        Self {
-            map,
-            frame_size: sp,
-        }
+        // 16-byte align the stack.
+        let frame_size = (sp + 15) & !15;
+        let frame_size = i12::try_from(frame_size).map_err(|_| CodegenError::TooManyLocals {
+            span: metadata.name.span().into(),
+        })?;
+        Ok(Self { map, frame_size })
     }
 
     /// Get storage of a value.
@@ -195,7 +228,7 @@ impl RegAlloc {
     }
 
     /// Minimum size of stack frame, in bytes.
-    pub fn frame_size(&self) -> u32 {
+    pub fn frame_size(&self) -> i12 {
         self.frame_size
     }
 }
@@ -212,6 +245,15 @@ fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
             let lhs = bin.lhs();
             let rhs = bin.rhs();
             [Some(lhs).filter(is_var), Some(rhs).filter(is_var)]
+        }
+        ValueKind::Store(store) => {
+            let val = Some(store.value()).filter(is_var);
+            let ptr = Some(store.dest()).filter(is_var);
+            [val, ptr]
+        }
+        ValueKind::Load(load) => {
+            let addr = Some(load.src()).filter(is_var);
+            [addr, None]
         }
         _ => [None; 2],
     }

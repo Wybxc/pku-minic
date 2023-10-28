@@ -1,8 +1,6 @@
 //! A compiler for the SysY language.
 #![deny(missing_docs)]
 
-use std::ops::Range;
-
 use lalrpop_util::lalrpop_mod;
 
 pub(crate) mod ast;
@@ -13,58 +11,101 @@ pub(crate) mod irutils;
 
 lalrpop_mod!(sysy);
 
-type Report<'a> = Box<ariadne::Report<'a, (&'a str, Range<usize>)>>;
+use miette::{Diagnostic, IntoDiagnostic, Result, SourceSpan};
+use thiserror::Error;
+
+use crate::irgen::metadata::ProgramMetadata;
+
+/// Parse error
+#[derive(Debug, Error, Diagnostic)]
+pub enum MinicParseError {
+    /// Invalid token
+    #[error("invalid token")]
+    #[diagnostic(code(minic::invalid_token))]
+    InvalidToken {
+        /// Span of the invalid token
+        #[label("invalid token")]
+        span: SourceSpan,
+    },
+
+    /// Unexpected end of file
+    #[error("unexpected end of file")]
+    #[diagnostic(code(minic::unexpected_eof))]
+    UnexpectedEof {
+        /// Expected tokens
+        #[help]
+        expected: String,
+        /// Span of the unexpected end of file
+        #[label("unexpected end of file")]
+        span: SourceSpan,
+    },
+
+    /// Unexpected token
+    #[error("unexpected token")]
+    #[diagnostic(code(minic::unexpected_token))]
+    UnexpectedToken {
+        /// Expected tokens
+        #[help]
+        expected: String,
+        /// Span of the unexpected token
+        #[label("unexpected token")]
+        span: SourceSpan,
+    },
+
+    /// Extra token
+    #[error("extra token")]
+    #[diagnostic(code(minic::extra_token))]
+    ExtraToken {
+        /// Span of the extra token
+        #[label("extra token")]
+        span: SourceSpan,
+    },
+
+    /// Unknown error
+    #[error("unknown error")]
+    #[diagnostic(code(minic::unknown))]
+    Unknown,
+}
 
 /// Compile SysY source code to Koopa IR.
-pub fn compile<'a>(input: &'a str, filename: &'a str) -> Result<koopa::ir::Program, Report<'a>> {
+pub fn compile(input: &str) -> Result<(koopa::ir::Program, ProgramMetadata)> {
     let ast = sysy::CompUnitParser::new().parse(input).map_err(|e| {
-        use ariadne::*;
         use lalrpop_util::ParseError;
 
-        let location = match &e {
-            ParseError::InvalidToken { location } => *location,
-            ParseError::UnrecognizedEof { location, .. } => *location,
-            ParseError::UnrecognizedToken { token, .. } => token.0,
-            ParseError::ExtraToken { token } => token.0,
-            ParseError::User { .. } => 0,
-        };
-        let message = match &e {
-            ParseError::InvalidToken { .. } => "invalid token",
-            ParseError::UnrecognizedEof { .. } => "unexpected end of file",
-            ParseError::UnrecognizedToken { .. } => "unexpected token",
-            ParseError::ExtraToken { .. } => "extra token",
-            ParseError::User { error } => error,
-        };
-        let label_message = match e {
-            ParseError::InvalidToken { .. } => "invalid token".to_string(),
-            ParseError::UnrecognizedEof { expected, .. } => {
-                format!("expected one of {}", expected.join(", "))
-            }
-            ParseError::UnrecognizedToken { expected, .. } => {
-                format!("expected one of {}", expected.join(", "))
-            }
-            ParseError::ExtraToken { token } => format!("extra token `{}`", token.1),
-            ParseError::User { error } => error.to_string(),
-        };
-
-        let mut colors = ColorGenerator::new();
-        let report = Report::build(ReportKind::Error, filename, location)
-            .with_message(message)
-            .with_label(
-                Label::new((filename, location..location))
-                    .with_message(label_message)
-                    .with_color(colors.next()),
-            )
-            .finish();
-
-        Box::new(report)
+        match e {
+            ParseError::InvalidToken { location } => MinicParseError::InvalidToken {
+                span: SourceSpan::new(location.into(), 1.into()),
+            },
+            ParseError::UnrecognizedEof { location, expected } => MinicParseError::UnexpectedEof {
+                expected: format!("expect one of: {}", expected.join(", ")),
+                span: SourceSpan::new(location.into(), 1.into()),
+            },
+            ParseError::UnrecognizedToken { token, expected } => MinicParseError::UnexpectedToken {
+                expected: if !expected.is_empty() {
+                    format!("expect one of: {}", expected.join(", "))
+                } else {
+                    "expect nothing".to_string()
+                },
+                span: (token.0..token.2).into(),
+            },
+            ParseError::ExtraToken { token } => MinicParseError::ExtraToken {
+                span: (token.0..token.2).into(),
+            },
+            _ => MinicParseError::Unknown,
+        }
     })?;
-    Ok(ast.build_ir())
+    let ir = ast.build_ir()?;
+    Ok(ir)
 }
 
 /// Generate code from Koopa IR.
-pub fn codegen(ir: koopa::ir::Program, mut w: impl std::io::Write) -> std::io::Result<()> {
+pub fn codegen(
+    ir: koopa::ir::Program,
+    metadata: &ProgramMetadata,
+    mut w: impl std::io::Write,
+) -> Result<()> {
     use codegen::Codegen;
 
-    Codegen(&ir).generate(&mut w)
+    let program = Codegen(&ir).generate(metadata)?;
+    write!(w, "{}", program).into_diagnostic()
 }
