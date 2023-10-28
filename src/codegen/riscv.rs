@@ -248,6 +248,106 @@ impl Display for Inst {
     }
 }
 
+impl Inst {
+    /// Get the destination register of the instruction.
+    pub fn dest(&self) -> Option<RegId> {
+        match self {
+            Inst::Li(rd, _) => Some(*rd),
+            Inst::Mv(rd, _) => Some(*rd),
+            Inst::Add(rd, _, _) => Some(*rd),
+            Inst::Addi(rd, _, _) => Some(*rd),
+            Inst::Sub(rd, _, _) => Some(*rd),
+            Inst::Neg(rd, _) => Some(*rd),
+            Inst::Mul(rd, _, _) => Some(*rd),
+            Inst::Mulh(rd, _, _) => Some(*rd),
+            Inst::Div(rd, _, _) => Some(*rd),
+            Inst::Divu(rd, _, _) => Some(*rd),
+            Inst::Rem(rd, _, _) => Some(*rd),
+            Inst::Remu(rd, _, _) => Some(*rd),
+            Inst::Not(rd, _) => Some(*rd),
+            Inst::And(rd, _, _) => Some(*rd),
+            Inst::Andi(rd, _, _) => Some(*rd),
+            Inst::Or(rd, _, _) => Some(*rd),
+            Inst::Ori(rd, _, _) => Some(*rd),
+            Inst::Xor(rd, _, _) => Some(*rd),
+            Inst::Xori(rd, _, _) => Some(*rd),
+            Inst::Sll(rd, _, _) => Some(*rd),
+            Inst::Slli(rd, _, _) => Some(*rd),
+            Inst::Sra(rd, _, _) => Some(*rd),
+            Inst::Srai(rd, _, _) => Some(*rd),
+            Inst::Srl(rd, _, _) => Some(*rd),
+            Inst::Srli(rd, _, _) => Some(*rd),
+            Inst::Slt(rd, _, _) => Some(*rd),
+            Inst::Sltu(rd, _, _) => Some(*rd),
+            Inst::Slti(rd, _, _) => Some(*rd),
+            Inst::Sltiu(rd, _, _) => Some(*rd),
+            Inst::Seqz(rd, _) => Some(*rd),
+            Inst::Snez(rd, _) => Some(*rd),
+            Inst::Sltz(rd, _) => Some(*rd),
+            Inst::Sgtz(rd, _) => Some(*rd),
+            Inst::Lb(rd, _, _) => Some(*rd),
+            Inst::Lh(rd, _, _) => Some(*rd),
+            Inst::Lw(rd, _, _) => Some(*rd),
+            Inst::Sb(_, _, _) => None,
+            Inst::Sh(_, _, _) => None,
+            Inst::Sw(_, _, _) => None,
+            Inst::Lbu(rd, _, _) => Some(*rd),
+            Inst::Lhu(rd, _, _) => Some(*rd),
+            Inst::Ret => None,
+            Inst::Nop => None,
+        }
+    }
+
+    /// Get the source registers of the instruction.
+    pub fn source_mut(&mut self) -> [Option<&mut RegId>; 2] {
+        match self {
+            Inst::Li(_, _) => [None, None],
+            Inst::Mv(_, rs) => [None, Some(rs)],
+            Inst::Add(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Addi(_, rs, _) => [Some(rs), None],
+            Inst::Sub(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Neg(_, rs) => [None, Some(rs)],
+            Inst::Mul(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Mulh(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Div(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Divu(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Rem(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Remu(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Not(_, rs) => [None, Some(rs)],
+            Inst::And(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Andi(_, rs, _) => [Some(rs), None],
+            Inst::Or(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Ori(_, rs, _) => [Some(rs), None],
+            Inst::Xor(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Xori(_, rs, _) => [Some(rs), None],
+            Inst::Sll(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Slli(_, rs, _) => [Some(rs), None],
+            Inst::Sra(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Srai(_, rs, _) => [Some(rs), None],
+            Inst::Srl(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Srli(_, rs, _) => [Some(rs), None],
+            Inst::Slt(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Sltu(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Slti(_, rs, _) => [Some(rs), None],
+            Inst::Sltiu(_, rs, _) => [Some(rs), None],
+            Inst::Seqz(_, rs) => [None, Some(rs)],
+            Inst::Snez(_, rs) => [None, Some(rs)],
+            Inst::Sltz(_, rs) => [None, Some(rs)],
+            Inst::Sgtz(_, rs) => [None, Some(rs)],
+            Inst::Lb(_, _, rs) => [None, Some(rs)],
+            Inst::Lh(_, _, rs) => [None, Some(rs)],
+            Inst::Lw(_, _, rs) => [None, Some(rs)],
+            Inst::Sb(_, _, rs) => [None, Some(rs)],
+            Inst::Sh(_, _, rs) => [None, Some(rs)],
+            Inst::Sw(_, _, rs) => [None, Some(rs)],
+            Inst::Lbu(_, _, rs) => [None, Some(rs)],
+            Inst::Lhu(_, _, rs) => [None, Some(rs)],
+            Inst::Ret => [None, None],
+            Inst::Nop => [None, None],
+        }
+    }
+}
+
 /// RISC-V basic block.
 #[derive(Debug, Clone)]
 pub struct Block {
