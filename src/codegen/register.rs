@@ -1,12 +1,60 @@
 //! Register allocation.
 //!
+//! ## Register usage
+//!
+//! RISC-V has 32 registers in total, 15 of which can be used for
+//! local variables.
+//!
 //! Each IR instruction will use:
 //! - 0~1 registers for result
 //! - 0~2 registers for temporary values
 //! - 0~3 registers for temporary storage of spilled values
 //!
 //! We allocate 1 register for each instruction with a result, and
-//! reserve 3 registers for temporary storage.
+//! reserve 3 registers for temporary storage. See [`REG_LOCAL_COUNT`]
+//! and [`REG_LOCAL`].
+//!
+//! ## Algorithm
+//!
+//! We adopt a static method: once a variable is assigned a register,
+//! it will not be changed.
+//!
+//! First we do a live variable analysis. Each IR instruction may drop
+//! at most 2 operands values, and generate at most 1 result value.
+//! The generated value can be obviously referred from the instruction,
+//! and we keep track of the dropped values.
+//!
+//! Currently there is no control flow, so we just scan the instructions
+//! in a basic block in reverse order, and the last appearing operand value
+//! is live out. Since Koopa IR is in SSA form, a variable will not be dropped
+//! twice in one basic block.
+//!
+//! Then we do a linear scan. We scan the instructions in a basic block,
+//! and allocate registers for results. If there is no free register,
+//! we spill a variable to the stack.
+//!
+//! ## Alloc, load and store
+//!
+//! To support non-SSA form, we need to load and store variables from/to
+//! the stack. There are three IR instructions for this:
+//! - `alloc: forall T, ref T`: Allocate a variable on the stack.
+//! - `load: ref T -> T`: Load a variable from the stack.
+//! - `store: T -> ref T -> unit`: Store a variable to the stack.
+//!
+//! We treat allocated `ref T` the same as `T`, and allocate a register
+//! or stack slot for it. The `load` and `store` instructions are lowered
+//! to data transfer from the allocated variable.
+//!
+//! The `ref T` is seen as an operand of `load` and `store`, in which case
+//! it can live in and out just as a normal variable.
+//!
+//! ## TODO
+//!
+//! - Now we always spill the newest variable, which is not optimal.
+//!   We should spill the variable that will not be used for a long time.
+//! - We do not allocate a0, t0, t1, since they are reserved for return
+//!   value and temporary storage. However, we can use them if they are
+//!   not used in some time.
 
 use std::collections::{HashMap, HashSet};
 
@@ -91,10 +139,10 @@ impl RegAlloc {
                     }
                 }
                 log::debug!(
-                    "VLA: live out ({:?}){} {:?}",
+                    "VLA: live out {:?} ({:?} {})",
+                    ops,
                     inst,
-                    irutils::dbg_inst(inst, func.dfg()),
-                    ops
+                    irutils::dbg_inst(inst, func.dfg())
                 );
                 live_out.insert(inst, ops);
             }
@@ -135,6 +183,13 @@ impl RegAlloc {
                         // Found a free register.
                         map.insert(inst, Storage::Reg(REG_LOCAL[reg]));
                         free[reg] = false;
+
+                        log::debug!(
+                            "REG: allocate {:?} to {:?} ({})",
+                            inst,
+                            REG_LOCAL[reg],
+                            irutils::dbg_inst(inst, func.dfg())
+                        );
                     } else {
                         // No free register, spill a variable.
                         map.insert(
@@ -145,12 +200,21 @@ impl RegAlloc {
                                 }
                             })?),
                         );
+
+                        log::debug!(
+                            "REG: spill {:?} to stack sp+{} ({})",
+                            inst,
+                            sp - 4,
+                            irutils::dbg_inst(inst, func.dfg())
+                        );
+
                         sp += 4;
                     }
                 }
             }
         }
 
+        // 16-byte align the stack.
         let frame_size = (sp + 15) & !15;
         let frame_size = i12::try_from(frame_size).map_err(|_| CodegenError::TooManyLocals {
             span: metadata.name.span().into(),
@@ -181,6 +245,15 @@ fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
             let lhs = bin.lhs();
             let rhs = bin.rhs();
             [Some(lhs).filter(is_var), Some(rhs).filter(is_var)]
+        }
+        ValueKind::Store(store) => {
+            let val = Some(store.value()).filter(is_var);
+            let ptr = Some(store.dest()).filter(is_var);
+            [val, ptr]
+        }
+        ValueKind::Load(load) => {
+            let addr = Some(load.src()).filter(is_var);
+            [addr, None]
         }
         _ => [None; 2],
     }

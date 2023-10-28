@@ -4,15 +4,15 @@
 //!   - [ ] Check if all variables are declared before use.
 //!   - [ ] Check if all instructions have unique value id.
 
+use crate::ast::Spanned;
 use crate::irgen::metadata::FunctionMetadata;
 use crate::{ast, irgen::metadata::ProgramMetadata};
-use crate::ast::Spanned;
 use koopa::ir::builder_traits::*;
 use koopa::ir::*;
 use miette::Result;
 
-pub mod metadata;
 mod error;
+pub mod metadata;
 mod symtable;
 
 use error::CompileError;
@@ -30,21 +30,31 @@ impl ast::CompUnit {
     }
 
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, program: &mut Program, metadata: &mut ProgramMetadata) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        program: &mut Program,
+        metadata: &mut ProgramMetadata,
+    ) -> Result<()> {
         self.func_def.build_ir_in(symtable, program, metadata)
     }
 }
 
 impl ast::FuncDef {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, program: &mut Program, metadata: &mut ProgramMetadata) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        program: &mut Program,
+        metadata: &mut ProgramMetadata,
+    ) -> Result<()> {
         let func = program.new_func(FunctionData::with_param_names(
             format!("@{}", self.ident.node),
             vec![],
             self.func_type.node.build_ir(),
         ));
         let func_data = program.func_mut(func);
-        
+
         let func_metadata = FunctionMetadata::new(self.ident);
         metadata.functions.insert(func, func_metadata);
 

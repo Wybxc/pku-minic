@@ -79,7 +79,7 @@ fn main() -> Result<()> {
     human_panic::setup_panic!();
 
     // Setup logger
-    env_logger::init();
+    pretty_env_logger::init();
 
     // Parse command line arguments
     let mut args = Args::parse();

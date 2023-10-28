@@ -616,7 +616,6 @@ name = "pku-minic"
 version = "0.1.0"
 dependencies = [
  "clio",
- "env_logger",
  "human-panic",
  "koopa",
  "lalrpop",
@@ -624,6 +623,7 @@ dependencies = [
  "log",
  "miette",
  "owo-colors",
+ "pretty_env_logger",
  "regex",
  "thiserror",
 ]
@@ -633,6 +633,16 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "pretty_env_logger"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "865724d4dbe39d9f3dd3b52b88d859d66bcb2d6a0acfd5ea68a65fb66d4bdc1c"
+dependencies = [
+ "env_logger",
+ "log",
+]
 
 [[package]]
 name = "proc-macro2"

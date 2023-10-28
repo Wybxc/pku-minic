@@ -177,11 +177,52 @@ impl Codegen<koopa::ir::entities::Value> {
                 }
                 Ok(())
             }
+            ValueKind::Alloc(_) => {
+                // Nothing to do here. Arrays will be considered in the future.
+                Ok(())
+            }
+            ValueKind::Store(store) => {
+                let val = Codegen(store.value());
+                let dest_storage = regs.get(store.dest());
+
+                // Get the register that stores the value.
+                // If the value is stored in stack, use a0 as the temporary register.
+                let dest_reg = match dest_storage {
+                    Storage::Reg(reg) => reg,
+                    Storage::Slot(_) => RegId::A0,
+                };
+
+                // Load the value to the register.
+                val.load_value_to_reg(block, dfg, regs, dest_reg, reg_cache)?;
+
+                // Write the value to stack if necessary.
+                if let Storage::Slot(slot) = dest_storage {
+                    block.push(Inst::Sw(dest_reg, slot, RegId::SP));
+                }
+
+                Ok(())
+            }
+            ValueKind::Load(load) => {
+                let storage = regs.get(self.0);
+                let reg = match storage {
+                    Storage::Reg(reg) => reg,
+                    Storage::Slot(_) => RegId::A0,
+                };
+
+                Codegen(load.src()).load_value_to_reg(block, dfg, regs, reg, reg_cache)?;
+
+                // Write the result to stack if necessary.
+                if let Storage::Slot(slot) = storage {
+                    block.push(Inst::Sw(reg, slot, RegId::SP));
+                }
+
+                Ok(())
+            }
             _ => panic!("unexpected value kind: {:?}", dfg.value(self.0).kind()),
         }
     }
 
-    fn data<'a>(&'a self, dfg: &'a DataFlowGraph) -> Codegen<&'a koopa::ir::entities::ValueData> {
+    fn data<'a>(&self, dfg: &'a DataFlowGraph) -> Codegen<&'a koopa::ir::entities::ValueData> {
         Codegen(dfg.value(self.0))
     }
 

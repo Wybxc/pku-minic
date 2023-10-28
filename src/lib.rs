@@ -11,7 +11,7 @@ pub(crate) mod irutils;
 
 lalrpop_mod!(sysy);
 
-use miette::{Diagnostic, Result, SourceSpan, IntoDiagnostic};
+use miette::{Diagnostic, IntoDiagnostic, Result, SourceSpan};
 use thiserror::Error;
 
 use crate::irgen::metadata::ProgramMetadata;
@@ -99,7 +99,11 @@ pub fn compile(input: &str) -> Result<(koopa::ir::Program, ProgramMetadata)> {
 }
 
 /// Generate code from Koopa IR.
-pub fn codegen(ir: koopa::ir::Program, metadata: &ProgramMetadata, mut w: impl std::io::Write) -> Result<()> {
+pub fn codegen(
+    ir: koopa::ir::Program,
+    metadata: &ProgramMetadata,
+    mut w: impl std::io::Write,
+) -> Result<()> {
     use codegen::Codegen;
 
     let program = Codegen(&ir).generate(metadata)?;

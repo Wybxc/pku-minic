@@ -1,5 +1,5 @@
 //! Short immediate values.
-//! 
+//!
 //! RISC-V has a number of instructions that take immediate values. These
 //! immediate values are often limited in size, such as 12-bit or 20-bit
 //! immediates. This module provides a type for representing these immediate
