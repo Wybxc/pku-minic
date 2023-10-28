@@ -1,3 +1,5 @@
+//! Utility functions for the IR.
+
 use koopa::ir::{dfg::DataFlowGraph, entities::ValueData, Value, ValueKind};
 
 /// Check if a value is a constant.

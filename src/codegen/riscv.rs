@@ -1,3 +1,7 @@
+//! RISC-V specification.
+//! 
+//! This module contains types for representing RISC-V instructions and programs.
+
 use std::fmt::Display;
 
 use super::imm::{i12, i20};

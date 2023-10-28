@@ -1,4 +1,4 @@
-//! Abstract Syntax Tree
+//! Abstract Syntax Tree.
 
 use std::ops::Range;
 
@@ -252,10 +252,7 @@ impl Spanned for ConstExpr {
 /// ```
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Assign {
-        ident: Span<String>,
-        expr: Expr,
-    },
+    Assign { ident: Span<String>, expr: Expr },
     Return { expr: Expr },
 }
 
@@ -353,15 +350,24 @@ impl NonSpanned for i32 {}
 
 impl NonSpanned for String {}
 
+/// Syntax unit with span information.
 pub trait Spanned {
+    /// Start position of the syntax unit.
     fn start_pos(&self) -> usize;
+
+    /// End position of the syntax unit.
     fn end_pos(&self) -> usize;
+
+    /// Range of the syntax unit.
     fn span(&self) -> Range<usize> {
         self.start_pos()..self.end_pos()
     }
 }
 
+/// AST nodes that do not themselves contain span information
+/// and thus should be enclosed within the [`Span<T>`] struct.
 pub trait NonSpanned {
+    /// Convert the syntax unit into a spanned syntax unit.
     fn into_span(self, start: usize, end: usize) -> Span<Self>
     where
         Self: Sized,
@@ -374,10 +380,14 @@ pub trait NonSpanned {
     }
 }
 
+/// Attach span information to a syntax unit.
 #[derive(Debug, Clone)]
 pub struct Span<T> {
+    /// Start position of the syntax unit.
     pub start: usize,
+    /// End position of the syntax unit.
     pub end: usize,
+    /// Inner syntax unit.
     pub node: T,
 }
 

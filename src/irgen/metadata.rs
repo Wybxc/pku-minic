@@ -1,3 +1,9 @@
+//! Metadata for the IR.
+//! 
+//! This module contains metadata for the IR. This is used to store syntactic
+//! information about the IR, which is not stored in the IR itself, for example,
+//! the name of a function.
+
 use std::collections::HashMap;
 
 use koopa::ir::Function;

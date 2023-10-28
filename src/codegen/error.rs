@@ -1,3 +1,5 @@
+//! Error type for the code generator.
+
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 

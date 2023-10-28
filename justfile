@@ -15,3 +15,7 @@ autotest-koopa:
 
 autotest-riscv:
     autotest -riscv -s lv4 .
+
+doc:
+    cargo doc --no-deps --document-private-items
+    dufs

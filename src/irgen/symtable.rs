@@ -1,3 +1,5 @@
+//! Symbol table.
+
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;

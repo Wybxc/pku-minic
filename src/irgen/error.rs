@@ -1,3 +1,5 @@
+//! Error type for the IR generator.
+
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
@@ -5,6 +7,7 @@ use thiserror::Error;
 #[derive(Error, Debug, Diagnostic)]
 #[allow(dead_code)]
 pub enum CompileError {
+    /// non-constant expression in constant context
     #[error("non-constant expression in constant context")]
     #[diagnostic(code(minic::non_const_expr))]
     NonConstantExpression {
@@ -12,6 +15,7 @@ pub enum CompileError {
         span: SourceSpan,
     },
 
+    /// variable not found
     #[error("variable not found")]
     #[diagnostic(code(minic::var_not_found))]
     VariableNotFound {
@@ -19,6 +23,7 @@ pub enum CompileError {
         span: SourceSpan,
     },
 
+    /// cannot assign to constant
     #[error("cannot assign to constant")]
     #[diagnostic(code(minic::assign_to_const))]
     AssignToConst {
