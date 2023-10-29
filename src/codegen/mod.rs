@@ -22,7 +22,6 @@ use crate::{
     irgen::metadata::{FunctionMetadata, ProgramMetadata},
     irutils,
 };
-use imm::i12;
 use peephole::BlockBuilder;
 use register::{RegAlloc, Storage};
 use riscv::{Inst, RegId};
@@ -56,18 +55,14 @@ impl Codegen<&koopa::ir::FunctionData> {
 
         // Prologue.
         let frame_size = regs.frame_size();
-        if frame_size.value() > 0 {
+        if frame_size > 0 {
             let mut block = func.new_block();
-            block.push(Inst::Addi(
-                RegId::SP,
-                RegId::SP,
-                i12::try_from(-frame_size.value()).unwrap(),
-            ));
+            block.push(Inst::Addi(RegId::SP, RegId::SP, -frame_size));
             func.push(block);
         }
 
         // Epilogue.
-        let epilogue = if frame_size.value() > 0 {
+        let epilogue = if frame_size > 0 {
             Some(Inst::Addi(RegId::SP, RegId::SP, frame_size))
         } else {
             None

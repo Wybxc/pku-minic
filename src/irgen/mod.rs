@@ -110,9 +110,8 @@ impl ast::Decl {
     ) -> Result<()> {
         match self {
             ast::Decl::Const(const_decl) => const_decl.node.build_ir_in(symtable),
-            ast::Decl::Var(var_decl) => var_decl.node.build_ir_in(symtable, func, block)?,
+            ast::Decl::Var(var_decl) => var_decl.node.build_ir_in(symtable, func, block),
         }
-        Ok(())
     }
 }
 
@@ -127,18 +126,20 @@ impl ast::BType {
 
 impl ast::ConstDecl {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable) {
+    pub fn build_ir_in(self, symtable: &mut SymbolTable) -> Result<()> {
         for def in self.defs {
-            def.build_ir_in(symtable);
+            def.build_ir_in(symtable)?;
         }
+        Ok(())
     }
 }
 
 impl ast::ConstDef {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable) {
-        let expr = self.expr.const_eval(symtable).unwrap(); // todo: error handling
+    pub fn build_ir_in(self, symtable: &mut SymbolTable) -> Result<()> {
+        let expr = self.expr.const_eval(symtable)?;
         symtable.insert_var(self.ident.node, Symbol::Const(expr));
+        Ok(())
     }
 }
 
