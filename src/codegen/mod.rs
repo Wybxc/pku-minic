@@ -142,12 +142,12 @@ impl Codegen<koopa::ir::entities::Value> {
                     // Specially deal with eq and ne.
                     match bin.op() {
                         BinaryOp::Eq => {
-                            block.push(Inst::Xor(RegId::T0, lhs, rhs));
-                            block.push(Inst::Seqz(reg, RegId::T0));
+                            block.push(Inst::Xor(reg, lhs, rhs));
+                            block.push(Inst::Seqz(reg, reg));
                         }
                         BinaryOp::NotEq => {
-                            block.push(Inst::Xor(RegId::T0, lhs, rhs));
-                            block.push(Inst::Snez(reg, RegId::T0));
+                            block.push(Inst::Xor(reg, lhs, rhs));
+                            block.push(Inst::Snez(reg, reg));
                         }
                         BinaryOp::Le => {
                             block.push(Inst::Slt(reg, rhs, lhs));
@@ -163,7 +163,6 @@ impl Codegen<koopa::ir::entities::Value> {
 
                 // Write the result to stack if necessary.
                 if let Storage::Slot(slot) = storage {
-                    // writeln!(w, "    sw {}, {}(sp)", reg, slot)?;
                     block.push(Inst::Sw(reg, slot, RegId::SP));
                 }
                 Ok(())
@@ -174,39 +173,36 @@ impl Codegen<koopa::ir::entities::Value> {
             }
             ValueKind::Store(store) => {
                 let val = Codegen(store.value());
-                let dest_storage = regs.get(store.dest());
+                match regs.get(store.dest()) {
+                    Storage::Reg(reg) => {
+                        // Load the value to the register.
+                        val.load_value_to_reg(block, dfg, regs, reg)?
+                    }
+                    Storage::Slot(slot) => {
+                        // Load the value to a0.
+                        val.load_value_to_reg(block, dfg, regs, RegId::A0)?;
 
-                // Get the register that stores the value.
-                // If the value is stored in stack, use a0 as the temporary register.
-                let dest_reg = match dest_storage {
-                    Storage::Reg(reg) => reg,
-                    Storage::Slot(_) => RegId::A0,
-                };
-
-                // Load the value to the register.
-                val.load_value_to_reg(block, dfg, regs, dest_reg)?;
-
-                // Write the value to stack if necessary.
-                if let Storage::Slot(slot) = dest_storage {
-                    block.push(Inst::Sw(dest_reg, slot, RegId::SP));
+                        // Write the value to stack.
+                        block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                    }
                 }
-
                 Ok(())
             }
             ValueKind::Load(load) => {
-                let storage = regs.get(self.0);
-                let reg = match storage {
-                    Storage::Reg(reg) => reg,
-                    Storage::Slot(_) => RegId::A0,
-                };
+                let src = Codegen(load.src());
+                match regs.get(self.0) {
+                    Storage::Reg(reg) => {
+                        // Load the value to the register.
+                        src.load_value_to_reg(block, dfg, regs, reg)?;
+                    }
+                    Storage::Slot(slot) => {
+                        // Load the value to a0.
+                        src.load_value_to_reg(block, dfg, regs, RegId::A0)?;
 
-                Codegen(load.src()).load_value_to_reg(block, dfg, regs, reg)?;
-
-                // Write the result to stack if necessary.
-                if let Storage::Slot(slot) = storage {
-                    block.push(Inst::Sw(reg, slot, RegId::SP));
+                        // Write the value to stack.
+                        block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                    }
                 }
-
                 Ok(())
             }
             _ => panic!("unexpected value kind: {:?}", dfg.value(self.0).kind()),
