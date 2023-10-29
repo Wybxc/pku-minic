@@ -4,6 +4,9 @@
 
 use std::fmt::Display;
 
+use key_node_list::{impl_node, KeyNodeList};
+use slotmap::{new_key_type, SlotMap};
+
 use super::imm::i12;
 
 /// RISC-V register.
@@ -348,11 +351,36 @@ impl Inst {
     }
 }
 
+new_key_type! {
+    /// Unique instruction identifier.
+    pub struct InstId;
+}
+
+pub struct InstNode {
+    prev: Option<InstId>,
+    next: Option<InstId>,
+}
+
+impl_node!(InstNode { Key = InstId, prev = prev, next = next });
+
+impl From<()> for InstNode {
+    fn from(_: ()) -> Self {
+        Self {
+            prev: None,
+            next: None,
+        }
+    }
+}
+
+type InstList = KeyNodeList<InstId, InstNode>;
+
 /// RISC-V basic block.
-#[derive(Debug, Clone)]
 pub struct Block {
+    /// Label of the basic block.
     pub label: String,
-    pub instructions: Vec<Inst>,
+    /// Instructions in the basic block.
+    pub instructions: InstList,
+    arena: SlotMap<InstId, Inst>,
 }
 
 impl Block {
@@ -360,20 +388,38 @@ impl Block {
     pub fn new(label: String) -> Self {
         Self {
             label,
-            instructions: Vec::new(),
+            arena: SlotMap::with_key(),
+            instructions: InstList::new(),
         }
+    }
+
+    /// Allocate a new instruction.
+    pub fn new_inst(&mut self, inst: Inst) -> InstId {
+        self.arena.insert(inst)
+    }
+
+    /// Get the instruction with the given identifier.
+    pub fn inst(&self, id: InstId) -> &Inst {
+        &self.arena[id]
+    }
+
+    /// Get the mutable instruction with the given identifier.
+    pub fn inst_mut(&mut self, id: InstId) -> &mut Inst {
+        &mut self.arena[id]
     }
 
     /// Add an instruction to the basic block.
     pub fn push(&mut self, inst: Inst) {
-        self.instructions.push(inst);
+        let inst = self.new_inst(inst);
+        self.instructions.push_key_back(inst).unwrap();
     }
 }
 
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{}:", self.label)?;
-        for inst in &self.instructions {
+        for inst in self.instructions.keys() {
+            let inst = self.inst(*inst);
             writeln!(f, "    {}", inst)?;
         }
         Ok(())
@@ -381,7 +427,6 @@ impl Display for Block {
 }
 
 /// RISC-V function.
-#[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub blocks: Vec<Block>,
@@ -429,7 +474,6 @@ impl Display for Function {
 }
 
 /// RISC-V program.
-#[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<Function>,
 }
