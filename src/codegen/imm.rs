@@ -92,5 +92,5 @@ impl<const N: usize> Display for Imm<N> {
 pub type i12 = Imm<12>;
 
 /// 20-bit immediate.
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, dead_code)]
 pub type i20 = Imm<20>;

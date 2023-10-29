@@ -4,7 +4,7 @@
 
 use std::fmt::Display;
 
-use super::imm::{i12, i20};
+use super::imm::i12;
 
 /// RISC-V register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -156,9 +156,9 @@ pub enum Inst {
     /// Set if less than unsigned.
     Sltu(RegId, RegId, RegId),
     /// Set if less than immediate.
-    Slti(RegId, RegId, i20),
+    Slti(RegId, RegId, i12),
     /// Set if less than immediate unsigned.
-    Sltiu(RegId, RegId, i20),
+    Sltiu(RegId, RegId, i12),
     /// Set if equal to zero.
     Seqz(RegId, RegId),
     /// Set if not equal to zero.
@@ -445,6 +445,12 @@ impl Program {
     /// Add a function to the program.
     pub fn push(&mut self, function: Function) {
         self.functions.push(function);
+    }
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

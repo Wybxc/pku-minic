@@ -1,20 +1,29 @@
-default: koopa riscv
-
 export RUST_BACKTRACE := "1"
 
+test_case := "hello.c"
+level := "lv4"
+
+default: koopa riscv
+
 koopa:
-    cargo run -- -koopa hello.c
+    cargo run -- -koopa {{test_case}}
 
 riscv:
-    cargo run -- -riscv hello.c
+    cargo run -- -riscv {{test_case}}
+
+perf:
+    cargo run -- -perf {{test_case}}
 
 autotest: autotest-koopa autotest-riscv
 
 autotest-koopa:
-    autotest -koopa -s lv4 .
+    autotest -koopa -s {{level}} .
 
 autotest-riscv:
-    autotest -riscv -s lv4 .
+    autotest -riscv -s {{level}} .
+
+autotest-perf:
+    autotest -perf -s {{level}} .
 
 doc:
     cargo doc --no-deps --document-private-items

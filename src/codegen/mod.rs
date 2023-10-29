@@ -16,7 +16,7 @@ mod error;
 mod imm;
 mod peephole;
 mod register;
-mod riscv;
+pub mod riscv;
 
 use crate::{
     irgen::metadata::{FunctionMetadata, ProgramMetadata},

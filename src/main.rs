@@ -1,5 +1,6 @@
+use std::io::{Read, Write};
+
 use miette::{IntoDiagnostic, Result};
-use std::io::Read;
 
 struct Args {
     mode: Mode,
@@ -10,6 +11,7 @@ struct Args {
 enum Mode {
     Koopa,
     Riscv,
+    Perf,
 }
 
 impl Args {
@@ -20,6 +22,7 @@ _Arguments_:
     *mode*        Mode of the compiler, can be one of:
                     *-koopa*      Generate koopa IR
                     *-riscv*      Generate riscv assembly
+                    *-perf*       Generate riscv assembly with performance optimizations
                     *-help*       Print this help message
     *input*       Input file, use - for stdin
     *-o output*   Output file, use - or omit for stdout"#;
@@ -37,6 +40,7 @@ _Arguments_:
         let mode = match mode.to_str() {
             Some("-koopa") => Mode::Koopa,
             Some("-riscv") => Mode::Riscv,
+            Some("-perf") => Mode::Perf,
             Some("-help") => {
                 // Print help message and exit
                 println!("{}", Self::help());
@@ -88,8 +92,14 @@ fn main() -> Result<()> {
     let mut input = String::new();
     args.input.read_to_string(&mut input).into_diagnostic()?;
 
+    let opt_level = match args.mode {
+        Mode::Koopa => 0,
+        Mode::Riscv => 0,
+        Mode::Perf => 2,
+    };
+
     // Compile
-    let (program, metadata) = match pku_minic::compile(&input) {
+    let (program, metadata) = match pku_minic::compile(&input, opt_level) {
         Ok(program) => program,
         Err(diagnostic) => Err(diagnostic.with_source_code(input))?,
     };
@@ -100,8 +110,9 @@ fn main() -> Result<()> {
             let mut gen = koopa::back::KoopaGenerator::new(args.output);
             gen.generate_on(&program).into_diagnostic()?;
         }
-        Mode::Riscv => {
-            pku_minic::codegen(program, &metadata, args.output)?;
+        Mode::Riscv | Mode::Perf => {
+            let program = pku_minic::codegen(program, &metadata, opt_level)?;
+            write!(args.output, "{}", program).into_diagnostic()?;
         }
     }
 
