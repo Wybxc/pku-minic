@@ -6,6 +6,7 @@ struct Args {
     mode: Mode,
     input: clio::Input,
     output: clio::Output,
+    opt_level: u8,
 }
 
 enum Mode {
@@ -16,16 +17,17 @@ enum Mode {
 
 impl Args {
     fn help() -> String {
-        let help = r#"_Usage_: *pku-minic* <mode> <input> [-o output]
+        let help = r#"_Usage_: *pku-minic* <mode> <input> [-o output] [-Olevel]
 
 _Arguments_:
     *mode*        Mode of the compiler, can be one of:
                     *-koopa*      Generate koopa IR
                     *-riscv*      Generate riscv assembly
-                    *-perf*       Generate riscv assembly with performance optimizations
+                    *-perf*       Generate riscv assembly with optimizations, implies *-O3*
                     *-help*       Print this help message
     *input*       Input file, use - for stdin
-    *-o output*   Output file, use - or omit for stdout"#;
+    *-o output*   Output file, use - or omit for stdout
+    *-Olevel*     Optimization level, can be *-O0*, *-O1*, *-O2* or *-O3*"#;
 
         markup(help)
     }
@@ -35,12 +37,18 @@ _Arguments_:
         let mut args = std::env::args_os();
         args.next(); // skip program name
 
+        let mut output = None;
+        let mut opt_level = 0;
+
         // Parse mode
         let mode = args.next().ok_or("missing argument `mode`")?;
         let mode = match mode.to_str() {
             Some("-koopa") => Mode::Koopa,
             Some("-riscv") => Mode::Riscv,
-            Some("-perf") => Mode::Perf,
+            Some("-perf") => {
+                opt_level = 3;
+                Mode::Perf
+            }
             Some("-help") => {
                 // Print help message and exit
                 println!("{}", Self::help());
@@ -53,18 +61,33 @@ _Arguments_:
         let input = args.next().ok_or("missing argument `input`")?;
         let input = clio::Input::new(&input).map_err(|err| err.to_string())?;
 
-        // Parse output. Missing output is allowed.
-        let output = if args.next().is_none() {
-            "-".into()
-        } else {
-            args.next().unwrap_or_else(|| "-".into())
-        };
+        // Parse other arguments
+
+        while let Some(arg) = args.next() {
+            match arg.to_str() {
+                Some("-o") => {
+                    output = Some(args.next().unwrap_or_else(|| "-".into()));
+                }
+                Some(s) if s.starts_with("-O") => {
+                    opt_level = s[2..]
+                        .parse()
+                        .map_err(|_| format!("invalid optimization level: {}", &s[2..]))?;
+                }
+                Some(s) => return Err(format!("invalid argument: {}", s)),
+                None => {}
+            }
+        }
+        // No output specified, use stdout
+        let output = output.unwrap_or_else(|| "-".into());
+
+        // Open output file
         let output = clio::Output::new(&output).map_err(|err| err.to_string())?;
 
         Ok(Self {
             mode,
             input,
             output,
+            opt_level,
         })
     }
 
@@ -92,11 +115,8 @@ fn main() -> Result<()> {
     let mut input = String::new();
     args.input.read_to_string(&mut input).into_diagnostic()?;
 
-    let opt_level = match args.mode {
-        Mode::Koopa => 0,
-        Mode::Riscv => 0,
-        Mode::Perf => 2,
-    };
+    // Optimization level
+    let opt_level = args.opt_level;
 
     // Compile
     let (program, metadata) = match pku_minic::compile(&input, opt_level) {
