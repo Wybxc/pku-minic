@@ -15,7 +15,7 @@ impl<const N: usize> Imm<N> {
     /// Create a new immediate value.
     #[inline]
     pub fn new(value: i32) -> Result<Self, &'static str> {
-        if !(-Self::MIN..Self::MAX).contains(&value) {
+        if !(Self::MIN..Self::MAX).contains(&value) {
             Err("imm out of range")
         } else {
             Ok(Imm(value))
