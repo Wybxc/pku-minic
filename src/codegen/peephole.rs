@@ -8,6 +8,7 @@ use super::riscv::{Block, Inst, RegId};
 /// Basic block builder, with optimizations.
 pub struct BlockBuilder {
     pub block: Block,
+    opt_level: u8,
     cache: HashMap<RegId, Source>,
 }
 
@@ -24,9 +25,10 @@ enum Source {
 
 impl BlockBuilder {
     /// Create a new block builder.
-    pub fn new(block: Block) -> Self {
+    pub fn new(block: Block, opt_level: u8) -> Self {
         Self {
             block,
+            opt_level,
             cache: HashMap::new(),
         }
     }
@@ -56,57 +58,60 @@ impl BlockBuilder {
                     return;
                 }
                 self.cache.insert(dst, src);
-
-                // Propagate the source.
-                match src {
-                    Source::Reg(src) => instr = Inst::Mv(dst, src),
-                    Source::Imm(imm) => instr = Inst::Li(dst, imm),
-                }
-            }
-            Inst::Add(dst, mut rs1, rs2) => {
-                // Propagate the source.
-                if let Some(Source::Reg(src)) = self.source(rs1) {
-                    rs1 = src;
-                }
-                match self.source(rs2) {
-                    Some(Source::Reg(src)) => instr = Inst::Add(dst, rs1, src),
-                    Some(Source::Imm(imm)) => {
-                        if let Ok(imm) = i12::try_from(imm) {
-                            instr = Inst::Addi(dst, rs1, imm);
-                        } else {
-                            instr = Inst::Add(dst, rs1, rs2);
-                        }
-                    }
-                    None => {}
-                }
-                self.cache.remove(&dst);
-            }
-            Inst::Sub(dst, mut rs1, rs2) => {
-                // Propagate the source.
-                if let Some(Source::Reg(src)) = self.source(rs1) {
-                    rs1 = src;
-                }
-                match self.source(rs2) {
-                    Some(Source::Reg(src)) => instr = Inst::Sub(dst, rs1, src),
-                    Some(Source::Imm(imm)) => {
-                        if let Ok(imm) = i12::try_from(-imm) {
-                            instr = Inst::Addi(dst, rs1, imm);
-                        } else {
-                            instr = Inst::Sub(dst, rs1, rs2);
-                        }
-                    }
-                    None => {}
-                }
-                self.cache.remove(&dst);
             }
             _ => {
-                for rs in instr.source_mut().into_iter().flatten() {
-                    if let Some(Source::Reg(src)) = self.source(*rs) {
-                        *rs = src;
-                    }
-                }
                 if let Some(dest) = instr.dest() {
                     self.cache.remove(&dest);
+                }
+            }
+        }
+
+        // Propagate known values.
+        if self.opt_level >= 1 {
+            match instr {
+                Inst::Mv(dst, src) => match self.source(src) {
+                    Some(Source::Reg(src)) => instr = Inst::Mv(dst, src),
+                    Some(Source::Imm(imm)) => instr = Inst::Li(dst, imm),
+                    None => {}
+                },
+                Inst::Add(dst, mut rs1, rs2) => {
+                    if let Some(Source::Reg(src)) = self.source(rs1) {
+                        rs1 = src;
+                    }
+                    match self.source(rs2) {
+                        Some(Source::Reg(src)) => instr = Inst::Add(dst, rs1, src),
+                        Some(Source::Imm(imm)) => {
+                            if let Ok(imm) = i12::try_from(imm) {
+                                instr = Inst::Addi(dst, rs1, imm);
+                            } else {
+                                instr = Inst::Add(dst, rs1, rs2);
+                            }
+                        }
+                        None => {}
+                    }
+                }
+                Inst::Sub(dst, mut rs1, rs2) => {
+                    if let Some(Source::Reg(src)) = self.source(rs1) {
+                        rs1 = src;
+                    }
+                    match self.source(rs2) {
+                        Some(Source::Reg(src)) => instr = Inst::Sub(dst, rs1, src),
+                        Some(Source::Imm(imm)) => {
+                            if let Ok(imm) = i12::try_from(-imm) {
+                                instr = Inst::Addi(dst, rs1, imm);
+                            } else {
+                                instr = Inst::Sub(dst, rs1, rs2);
+                            }
+                        }
+                        None => {}
+                    }
+                }
+                _ => {
+                    for rs in instr.source_mut().into_iter().flatten() {
+                        if let Some(Source::Reg(src)) = self.source(*rs) {
+                            *rs = src;
+                        }
+                    }
                 }
             }
         }

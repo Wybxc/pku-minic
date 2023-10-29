@@ -102,10 +102,10 @@ pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, Progr
 pub fn codegen(
     ir: koopa::ir::Program,
     metadata: &ProgramMetadata,
-    _opt_level: u8,
+    opt_level: u8,
 ) -> Result<codegen::riscv::Program> {
     use codegen::Codegen;
 
-    let program = Codegen(&ir).generate(metadata)?;
+    let program = Codegen(&ir).generate(metadata, opt_level)?;
     Ok(program)
 }

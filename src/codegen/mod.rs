@@ -32,11 +32,12 @@ pub struct Codegen<T>(pub T);
 
 impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, metadata: &ProgramMetadata) -> Result<riscv::Program> {
+    pub fn generate(self, metadata: &ProgramMetadata, opt_level: u8) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            let func = Codegen(func_data).generate(metadata.functions.get(&func).unwrap())?;
+            let func =
+                Codegen(func_data).generate(metadata.functions.get(&func).unwrap(), opt_level)?;
             program.push(func);
         }
         Ok(program)
@@ -45,7 +46,7 @@ impl Codegen<&koopa::ir::Program> {
 
 impl Codegen<&koopa::ir::FunctionData> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, metadata: &FunctionMetadata) -> Result<riscv::Function> {
+    pub fn generate(self, metadata: &FunctionMetadata, opt_level: u8) -> Result<riscv::Function> {
         let name = &self.0.name()[1..];
 
         let mut func = riscv::Function::new(name.to_string());
@@ -70,7 +71,7 @@ impl Codegen<&koopa::ir::FunctionData> {
 
         // Generate code for the instruction.
         for (&_bb, node) in self.0.layout().bbs() {
-            let mut block = BlockBuilder::new(func.new_block());
+            let mut block = BlockBuilder::new(func.new_block(), opt_level);
             for &inst in node.insts().keys() {
                 Codegen(inst).generate(&mut block, dfg, &regs, epilogue)?;
             }
