@@ -44,44 +44,33 @@ impl BlockBuilder {
     /// - Reuse known values.
     /// - Propagate known values.
     pub fn push(&mut self, mut instr: Inst) {
-        // Reuse known values.
-        match instr {
-            Inst::Li(dst, imm) => {
-                if self.source(dst).unwrap_or(Source::Reg(dst)) == Source::Imm(imm) {
-                    return;
-                }
-                self.cache.insert(dst, Source::Imm(imm));
-            }
-            Inst::Mv(dst, src) => {
-                let src = self.source(src).unwrap_or(Source::Reg(src));
-                if self.source(dst).unwrap_or(Source::Reg(dst)) == src {
-                    return;
-                }
-                self.cache.insert(dst, src);
-            }
-            _ => {
-                if let Some(dest) = instr.dest() {
-                    self.cache.remove(&dest);
-                }
-            }
-        }
-
         // Propagate known values.
         if self.opt_level >= 1 {
             match instr {
-                Inst::Mv(dst, src) => match self.source(src) {
-                    Some(Source::Reg(src)) => instr = Inst::Mv(dst, src),
-                    Some(Source::Imm(imm)) => instr = Inst::Li(dst, imm),
+                Inst::Mv(dst, rs) => match self.source(rs) {
+                    Some(Source::Reg(src)) => {
+                        log::debug!("propagating {} from {}", src, rs);
+                        instr = Inst::Mv(dst, src)
+                    }
+                    Some(Source::Imm(imm)) => {
+                        log::debug!("propagating imm {} from {}", imm, rs);
+                        instr = Inst::Li(dst, imm)
+                    }
                     None => {}
                 },
                 Inst::Add(dst, mut rs1, rs2) => {
                     if let Some(Source::Reg(src)) = self.source(rs1) {
+                        log::debug!("propagating {} from {}", src, rs1);
                         rs1 = src;
                     }
                     match self.source(rs2) {
-                        Some(Source::Reg(src)) => instr = Inst::Add(dst, rs1, src),
+                        Some(Source::Reg(src)) => {
+                            log::debug!("propagating {} from {}", src, rs2);
+                            instr = Inst::Add(dst, rs1, src)
+                        }
                         Some(Source::Imm(imm)) => {
                             if let Ok(imm) = i12::try_from(imm) {
+                                log::debug!("propagating imm {} from {}", imm, rs2);
                                 instr = Inst::Addi(dst, rs1, imm);
                             } else {
                                 instr = Inst::Add(dst, rs1, rs2);
@@ -92,12 +81,17 @@ impl BlockBuilder {
                 }
                 Inst::Sub(dst, mut rs1, rs2) => {
                     if let Some(Source::Reg(src)) = self.source(rs1) {
+                        log::debug!("propagating {} from {}", src, rs1);
                         rs1 = src;
                     }
                     match self.source(rs2) {
-                        Some(Source::Reg(src)) => instr = Inst::Sub(dst, rs1, src),
+                        Some(Source::Reg(src)) => {
+                            log::debug!("propagating {} from {}", src, rs2);
+                            instr = Inst::Sub(dst, rs1, src)
+                        }
                         Some(Source::Imm(imm)) => {
                             if let Ok(imm) = i12::try_from(-imm) {
+                                log::debug!("propagating imm {} from {}", -imm.value(), rs2);
                                 instr = Inst::Addi(dst, rs1, imm);
                             } else {
                                 instr = Inst::Sub(dst, rs1, rs2);
@@ -109,9 +103,34 @@ impl BlockBuilder {
                 _ => {
                     for rs in instr.source_mut().into_iter().flatten() {
                         if let Some(Source::Reg(src)) = self.source(*rs) {
+                            log::debug!("propagating {} from {}", src, rs);
                             *rs = src;
                         }
                     }
+                }
+            }
+        }
+
+        // Reuse known values.
+        match instr {
+            Inst::Li(dst, imm) => {
+                if self.source(dst).unwrap_or(Source::Reg(dst)) == Source::Imm(imm) {
+                    log::debug!("reusing imm in {}", dst);
+                    return;
+                }
+                self.cache.insert(dst, Source::Imm(imm));
+            }
+            Inst::Mv(dst, src) => {
+                let src = self.source(src).unwrap_or(Source::Reg(src));
+                if self.source(dst).unwrap_or(Source::Reg(dst)) == src {
+                    log::debug!("reusing {:?} in {}", src, dst);
+                    return;
+                }
+                self.cache.insert(dst, src);
+            }
+            _ => {
+                if let Some(dest) = instr.dest() {
+                    self.cache.remove(&dest);
                 }
             }
         }
@@ -121,6 +140,7 @@ impl BlockBuilder {
             self.cache.retain(|_, source| *source != Source::Reg(dest));
         }
 
+        log::debug!("push instr: {}", instr);
         self.block.push(instr);
     }
 
