@@ -12,3 +12,4 @@ target/
 # Test files
 /*.c
 /*.kp
+/*.s

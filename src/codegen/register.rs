@@ -60,6 +60,7 @@ use std::collections::{HashMap, HashSet};
 
 use koopa::ir::{dfg::DataFlowGraph, FunctionData, Value, ValueKind};
 use miette::Result;
+use owo_colors::OwoColorize;
 
 use super::riscv::RegId;
 use crate::{
@@ -139,10 +140,13 @@ impl RegAlloc {
                     }
                 }
                 log::debug!(
-                    "VLA: live out {:?} ({:?} {})",
-                    ops,
-                    inst,
-                    irutils::dbg_inst(inst, func.dfg())
+                    "VLA: live out [{}] (at {})",
+                    ops.iter()
+                        .filter_map(|&v| v)
+                        .map(|v| irutils::ident_inst(v, func.dfg()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    irutils::dbg_inst(inst, func.dfg()).bright_black()
                 );
                 live_out.insert(inst, ops);
             }
@@ -185,10 +189,10 @@ impl RegAlloc {
                         free[reg] = false;
 
                         log::debug!(
-                            "REG: allocate {:?} to {:?} ({})",
-                            inst,
+                            "REG: allocate `{}` to `{}` (at {})",
+                            irutils::ident_inst(inst, func.dfg()),
                             REG_LOCAL[reg],
-                            irutils::dbg_inst(inst, func.dfg())
+                            irutils::dbg_inst(inst, func.dfg()).bright_black()
                         );
                     } else {
                         // No free register, spill a variable.
@@ -202,10 +206,10 @@ impl RegAlloc {
                         );
 
                         log::debug!(
-                            "REG: spill {:?} to stack sp+{} ({})",
-                            inst,
-                            sp - 4,
-                            irutils::dbg_inst(inst, func.dfg())
+                            "REG: spill {} to stack sp+{} (at {})",
+                            irutils::ident_inst(inst, func.dfg()),
+                            sp,
+                            irutils::dbg_inst(inst, func.dfg()).bright_black()
                         );
 
                         sp += 4;

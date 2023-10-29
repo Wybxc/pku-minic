@@ -176,7 +176,9 @@ impl ast::VarDef {
         block: BasicBlock,
     ) -> Result<()> {
         // Allocate a new variable.
-        let var = func.dfg_mut().new_value().alloc(ty.build_ir());
+        let dfg = func.dfg_mut();
+        let var = dfg.new_value().alloc(ty.build_ir());
+        dfg.set_value_name(var, Some(format!("@{}", self.ident.node)));
         push_inst(func, block, var);
 
         // Initialize the variable.
