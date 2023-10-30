@@ -2,9 +2,11 @@
 //!
 //! This module contains types for representing RISC-V instructions and programs.
 
-use std::fmt::Display;
+use std::{cell::Cell, collections::HashMap, fmt::Display, num::NonZeroU32};
 
-use super::imm::{i12, i20};
+use key_node_list::{impl_node, KeyNodeList};
+
+use super::imm::i12;
 
 /// RISC-V register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -156,9 +158,9 @@ pub enum Inst {
     /// Set if less than unsigned.
     Sltu(RegId, RegId, RegId),
     /// Set if less than immediate.
-    Slti(RegId, RegId, i20),
+    Slti(RegId, RegId, i12),
     /// Set if less than immediate unsigned.
-    Sltiu(RegId, RegId, i20),
+    Sltiu(RegId, RegId, i12),
     /// Set if equal to zero.
     Seqz(RegId, RegId),
     /// Set if not equal to zero.
@@ -248,11 +250,160 @@ impl Display for Inst {
     }
 }
 
+impl Inst {
+    /// Get the destination register of the instruction.
+    pub fn dest(self) -> Option<RegId> {
+        match self {
+            Inst::Li(rd, _) => Some(rd),
+            Inst::Mv(rd, _) => Some(rd),
+            Inst::Add(rd, _, _) => Some(rd),
+            Inst::Addi(rd, _, _) => Some(rd),
+            Inst::Sub(rd, _, _) => Some(rd),
+            Inst::Neg(rd, _) => Some(rd),
+            Inst::Mul(rd, _, _) => Some(rd),
+            Inst::Mulh(rd, _, _) => Some(rd),
+            Inst::Div(rd, _, _) => Some(rd),
+            Inst::Divu(rd, _, _) => Some(rd),
+            Inst::Rem(rd, _, _) => Some(rd),
+            Inst::Remu(rd, _, _) => Some(rd),
+            Inst::Not(rd, _) => Some(rd),
+            Inst::And(rd, _, _) => Some(rd),
+            Inst::Andi(rd, _, _) => Some(rd),
+            Inst::Or(rd, _, _) => Some(rd),
+            Inst::Ori(rd, _, _) => Some(rd),
+            Inst::Xor(rd, _, _) => Some(rd),
+            Inst::Xori(rd, _, _) => Some(rd),
+            Inst::Sll(rd, _, _) => Some(rd),
+            Inst::Slli(rd, _, _) => Some(rd),
+            Inst::Sra(rd, _, _) => Some(rd),
+            Inst::Srai(rd, _, _) => Some(rd),
+            Inst::Srl(rd, _, _) => Some(rd),
+            Inst::Srli(rd, _, _) => Some(rd),
+            Inst::Slt(rd, _, _) => Some(rd),
+            Inst::Sltu(rd, _, _) => Some(rd),
+            Inst::Slti(rd, _, _) => Some(rd),
+            Inst::Sltiu(rd, _, _) => Some(rd),
+            Inst::Seqz(rd, _) => Some(rd),
+            Inst::Snez(rd, _) => Some(rd),
+            Inst::Sltz(rd, _) => Some(rd),
+            Inst::Sgtz(rd, _) => Some(rd),
+            Inst::Lb(rd, _, _) => Some(rd),
+            Inst::Lh(rd, _, _) => Some(rd),
+            Inst::Lw(rd, _, _) => Some(rd),
+            Inst::Sb(_, _, _) => None,
+            Inst::Sh(_, _, _) => None,
+            Inst::Sw(_, _, _) => None,
+            Inst::Lbu(rd, _, _) => Some(rd),
+            Inst::Lhu(rd, _, _) => Some(rd),
+            Inst::Ret => None,
+            Inst::Nop => None,
+        }
+    }
+
+    /// Get the source registers of the instruction.
+    pub fn source(mut self) -> [Option<RegId>; 2] {
+        self.source_mut().map(|r| r.copied())
+    }
+
+    /// Get the mutable source registers of the instruction.
+    pub fn source_mut(&mut self) -> [Option<&mut RegId>; 2] {
+        match self {
+            Inst::Li(_, _) => [None, None],
+            Inst::Mv(_, rs) => [None, Some(rs)],
+            Inst::Add(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Addi(_, rs, _) => [Some(rs), None],
+            Inst::Sub(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Neg(_, rs) => [None, Some(rs)],
+            Inst::Mul(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Mulh(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Div(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Divu(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Rem(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Remu(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Not(_, rs) => [None, Some(rs)],
+            Inst::And(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Andi(_, rs, _) => [Some(rs), None],
+            Inst::Or(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Ori(_, rs, _) => [Some(rs), None],
+            Inst::Xor(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Xori(_, rs, _) => [Some(rs), None],
+            Inst::Sll(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Slli(_, rs, _) => [Some(rs), None],
+            Inst::Sra(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Srai(_, rs, _) => [Some(rs), None],
+            Inst::Srl(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Srli(_, rs, _) => [Some(rs), None],
+            Inst::Slt(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Sltu(_, rs1, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Slti(_, rs, _) => [Some(rs), None],
+            Inst::Sltiu(_, rs, _) => [Some(rs), None],
+            Inst::Seqz(_, rs) => [None, Some(rs)],
+            Inst::Snez(_, rs) => [None, Some(rs)],
+            Inst::Sltz(_, rs) => [None, Some(rs)],
+            Inst::Sgtz(_, rs) => [None, Some(rs)],
+            Inst::Lb(_, _, rs) => [None, Some(rs)],
+            Inst::Lh(_, _, rs) => [None, Some(rs)],
+            Inst::Lw(_, _, rs) => [None, Some(rs)],
+            Inst::Sb(_, _, rs) => [None, Some(rs)],
+            Inst::Sh(_, _, rs) => [None, Some(rs)],
+            Inst::Sw(_, _, rs) => [None, Some(rs)],
+            Inst::Lbu(_, _, rs) => [None, Some(rs)],
+            Inst::Lhu(_, _, rs) => [None, Some(rs)],
+            Inst::Ret => [None, None],
+            Inst::Nop => [None, None],
+        }
+    }
+}
+
+thread_local! {
+    static INST_ID_COUNTER: Cell<NonZeroU32> = Cell::new(unsafe { NonZeroU32::new_unchecked(1) });
+}
+
+/// Unique instruction identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct InstId(NonZeroU32);
+
+impl InstId {
+    /// Next unique instruction identifier.
+    pub fn next_id() -> Self {
+        INST_ID_COUNTER.with(|counter| {
+            let id = counter.get();
+            counter.set(NonZeroU32::new(id.get() + 1).unwrap());
+            Self(id)
+        })
+    }
+}
+
+/// Node in the instruction list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InstNode {
+    pub inst: Inst,
+    prev: Option<InstId>,
+    next: Option<InstId>,
+}
+
+impl_node!(InstNode { Key = InstId, prev = prev, next = next });
+
+impl InstNode {
+    /// Create a new instruction node.
+    pub fn new(inst: Inst) -> Self {
+        Self {
+            inst,
+            prev: None,
+            next: None,
+        }
+    }
+}
+
+type InstList = KeyNodeList<InstId, InstNode, HashMap<InstId, InstNode>>;
+
 /// RISC-V basic block.
-#[derive(Debug, Clone)]
 pub struct Block {
+    /// Label of the basic block.
     pub label: String,
-    pub instructions: Vec<Inst>,
+    /// Instructions in the basic block.
+    instructions: InstList,
 }
 
 impl Block {
@@ -260,28 +411,145 @@ impl Block {
     pub fn new(label: String) -> Self {
         Self {
             label,
-            instructions: Vec::new(),
+            instructions: InstList::new(),
         }
     }
 
     /// Add an instruction to the basic block.
-    pub fn push(&mut self, inst: Inst) {
-        self.instructions.push(inst);
+    pub fn push(&mut self, inst: Inst) -> InstId {
+        let id = InstId::next_id();
+        let node = InstNode::new(inst);
+        self.instructions.push_back(id, node).unwrap();
+        id
+    }
+
+    /// Get the instruction with the given id.
+    pub fn get(&self, id: InstId) -> Option<Inst> {
+        self.instructions.cursor(id).node().map(|node| node.inst)
+    }
+
+    /// The number of instructions in the basic block.
+    pub fn len(&self) -> usize {
+        self.instructions.len()
+    }
+
+    /// The first instruction id in the basic block.
+    pub fn front(&self) -> Option<InstId> {
+        self.instructions.front_key().copied()
+    }
+
+    /// The last instruction id in the basic block.
+    pub fn back(&self) -> Option<InstId> {
+        self.instructions.back_key().copied()
+    }
+
+    /// Provide a cursor with mutable access to the instruction with the given id.
+    pub fn cursor(&mut self, id: InstId) -> Cursor<'_> {
+        Cursor {
+            cursor: self.instructions.cursor_mut(id),
+        }
     }
 }
 
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{}:", self.label)?;
-        for inst in &self.instructions {
-            writeln!(f, "    {}", inst)?;
+        for node in self.instructions.nodes() {
+            writeln!(f, "    {}", node.inst)?;
         }
         Ok(())
     }
 }
 
+/// Cursor with mutable access to an instruction in a basic block.
+pub struct Cursor<'a> {
+    cursor: key_node_list::CursorMut<'a, InstId, InstNode, HashMap<InstId, InstNode>>,
+}
+
+impl<'a> Cursor<'a> {
+    /// Check if the cursor is null.
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
+
+    /// Get the instruction id.
+    pub fn id(&self) -> Option<InstId> {
+        self.cursor.key().cloned()
+    }
+
+    /// Get the instruction.
+    pub fn inst(&self) -> Option<Inst> {
+        self.cursor.node().map(|node| node.inst)
+    }
+
+    /// Set the instruction. If the cursor is null, this function does nothing.
+    pub fn set_inst(&mut self, inst: Inst) {
+        if let Some(node) = self.cursor.node_mut() {
+            node.inst = inst;
+        }
+    }
+
+    /// Move the cursor to the previous instruction.
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
+
+    /// Move the cursor to the next instruction.
+    pub fn next(&mut self) {
+        self.cursor.move_next();
+    }
+
+    /// Get an iterator over the following instructions, not including the current instruction.
+    pub fn followings(&self) -> impl Iterator<Item = (InstId, Inst)> + '_ {
+        let mut cursor = self.cursor.as_cursor();
+        cursor.move_next();
+        Follow { cursor }
+    }
+
+    /// Insert a new instruction before the current instruction.
+    pub fn insert_before(&mut self, inst: Inst) -> InstId {
+        let id = InstId::next_id();
+        let node = InstNode::new(inst);
+        self.cursor.insert_before(id, node).unwrap();
+        id
+    }
+
+    /// Insert a new instruction after the current instruction.
+    pub fn insert_after(&mut self, inst: Inst) -> InstId {
+        let id = InstId::next_id();
+        let node = InstNode::new(inst);
+        self.cursor.insert_after(id, node).unwrap();
+        id
+    }
+
+    /// Remove the current instruction, and move the cursor to the next instruction.
+    ///
+    /// If the cursor is null, this function does nothing.
+    pub fn remove_and_next(&mut self) {
+        self.cursor.remove_current();
+    }
+}
+
+struct Follow<'a> {
+    cursor: key_node_list::Cursor<'a, InstId, InstNode, HashMap<InstId, InstNode>>,
+}
+
+impl Iterator for Follow<'_> {
+    type Item = (InstId, Inst);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cursor.is_null() {
+            None
+        } else {
+            let id = *self.cursor.key().unwrap();
+            let inst = self.cursor.node().unwrap().inst;
+            self.cursor.move_next();
+            Some((id, inst))
+        }
+    }
+}
+
 /// RISC-V function.
-#[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub blocks: Vec<Block>,
@@ -329,7 +597,6 @@ impl Display for Function {
 }
 
 /// RISC-V program.
-#[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<Function>,
 }
@@ -345,6 +612,12 @@ impl Program {
     /// Add a function to the program.
     pub fn push(&mut self, function: Function) {
         self.functions.push(function);
+    }
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
