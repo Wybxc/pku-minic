@@ -2,10 +2,9 @@
 //!
 //! This module contains types for representing RISC-V instructions and programs.
 
-use std::fmt::Display;
+use std::{cell::Cell, fmt::Display, num::NonZeroU32, collections::HashMap};
 
-use key_node_list::{impl_node, KeyNodeList};
-use slotmap::{new_key_type, SlotMap};
+use key_node_list::{impl_node, KeyNodeList, CursorMut};
 
 use super::imm::i12;
 
@@ -351,36 +350,55 @@ impl Inst {
     }
 }
 
-new_key_type! {
-    /// Unique instruction identifier.
-    pub struct InstId;
+thread_local! {
+    static INST_ID_COUNTER: Cell<NonZeroU32> = Cell::new(unsafe { NonZeroU32::new_unchecked(1) });
 }
 
-pub struct InstNode {
+/// Unique instruction identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct InstId(NonZeroU32);
+
+impl InstId {
+    /// Next unique instruction identifier.
+    pub fn next_id() -> Self {
+        INST_ID_COUNTER.with(|counter| {
+            let id = counter.get();
+            counter.set(NonZeroU32::new(id.get() + 1).unwrap());
+            Self(id)
+        })
+    }
+}
+
+/// Node in the instruction list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InstNode {
+    pub inst: Inst,
     prev: Option<InstId>,
     next: Option<InstId>,
 }
 
 impl_node!(InstNode { Key = InstId, prev = prev, next = next });
 
-impl From<()> for InstNode {
-    fn from(_: ()) -> Self {
+impl InstNode {
+    /// Create a new instruction node.
+    pub fn new(inst: Inst) -> Self {
         Self {
+            inst,
             prev: None,
             next: None,
         }
     }
 }
 
-type InstList = KeyNodeList<InstId, InstNode>;
+type InstList = KeyNodeList<InstId, InstNode, HashMap<InstId, InstNode>>;
 
 /// RISC-V basic block.
 pub struct Block {
     /// Label of the basic block.
     pub label: String,
     /// Instructions in the basic block.
-    pub instructions: InstList,
-    arena: SlotMap<InstId, Inst>,
+    instructions: InstList,
 }
 
 impl Block {
@@ -388,41 +406,127 @@ impl Block {
     pub fn new(label: String) -> Self {
         Self {
             label,
-            arena: SlotMap::with_key(),
             instructions: InstList::new(),
         }
     }
 
-    /// Allocate a new instruction.
-    pub fn new_inst(&mut self, inst: Inst) -> InstId {
-        self.arena.insert(inst)
-    }
-
-    /// Get the instruction with the given identifier.
-    pub fn inst(&self, id: InstId) -> &Inst {
-        &self.arena[id]
-    }
-
-    /// Get the mutable instruction with the given identifier.
-    pub fn inst_mut(&mut self, id: InstId) -> &mut Inst {
-        &mut self.arena[id]
-    }
-
     /// Add an instruction to the basic block.
-    pub fn push(&mut self, inst: Inst) {
-        let inst = self.new_inst(inst);
-        self.instructions.push_key_back(inst).unwrap();
+    pub fn push(&mut self, inst: Inst) -> InstId {
+        let id = InstId::next_id();
+        let node = InstNode::new(inst);
+        self.instructions
+            .push_back(id, node)
+            .unwrap();
+        id
+    }
+
+    /// Get the instruction with the given id.
+    pub fn get(&self, id: InstId) -> Option<Inst> {
+        self.instructions.cursor(id).node().map(|node| node.inst)
+    }
+
+    /// The number of instructions in the basic block.
+    pub fn len(&self) -> usize {
+        self.instructions.len()
+    }
+
+    /// The first instruction id in the basic block.
+    pub fn front(&self) -> Option<InstId> {
+        self.instructions.front_key().copied()
+    }
+
+    /// The last instruction id in the basic block.
+    pub fn back(&self) -> Option<InstId> {
+        self.instructions.back_key().copied()
+    }
+
+    /// Provide a cursor with mutable access to the instruction with the given id.
+    pub fn cursor(&mut self, id: InstId) -> Cursor<'_> {
+        Cursor {
+            cursor: self.instructions.cursor_mut(id),
+        }
     }
 }
 
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{}:", self.label)?;
-        for inst in self.instructions.keys() {
-            let inst = self.inst(*inst);
-            writeln!(f, "    {}", inst)?;
+        for node in self.instructions.nodes() {
+            writeln!(f, "    {}", node.inst)?;
         }
         Ok(())
+    }
+}
+
+/// Cursor with mutable access to an instruction in a basic block.
+pub struct Cursor<'a> {
+    cursor: CursorMut<'a, InstId, InstNode, HashMap<InstId, InstNode>>,
+}
+
+impl<'a> Cursor<'a> {
+    /// Check if the cursor is null.
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
+
+    /// Get the instruction id.
+    pub fn id(&self) -> Option<InstId> {
+        self.cursor.key().cloned()
+    }
+
+    /// Get the instruction.
+    pub fn inst(&self) -> Option<Inst> {
+        self.cursor.node().map(|node| node.inst)
+    }
+
+    /// Set the instruction. If the cursor is null, this function does nothing.
+    pub fn set_inst(&mut self, inst: Inst) {
+        if let Some(node) = self.cursor.node_mut() {
+            node.inst = inst;
+        }
+    }
+
+    /// Get the previous instruction id.
+    pub fn prev_id(&self) -> Option<InstId> {
+        self.cursor.prev_key().cloned()
+    }
+
+    /// Get the previous instruction.
+    pub fn prev_inst(&self) -> Option<Inst> {
+        self.cursor.prev_node().map(|node| node.inst)
+    }
+
+    /// Get the next instruction id.
+    pub fn next_id(&self) -> Option<InstId> {
+        self.cursor.next_key().cloned()
+    }
+
+    /// Get the next instruction.
+    pub fn next_inst(&self) -> Option<Inst> {
+        self.cursor.next_node().map(|node| node.inst)
+    }
+
+    /// Insert a new instruction before the current instruction.
+    pub fn insert_before(&mut self, inst: Inst) -> InstId {
+        let id = InstId::next_id();
+        let node = InstNode::new(inst);
+        self.cursor.insert_before(id, node).unwrap();
+        id
+    }
+
+    /// Insert a new instruction after the current instruction.
+    pub fn insert_after(&mut self, inst: Inst) -> InstId {
+        let id = InstId::next_id();
+        let node = InstNode::new(inst);
+        self.cursor.insert_after(id, node).unwrap();
+        id
+    }
+
+    /// Remove the current instruction, and move the cursor to the next instruction.
+    /// 
+    /// If the cursor is null, this function does nothing.
+    pub fn remove_and_next(&mut self) {
+        self.cursor.remove_current();
     }
 }
 
