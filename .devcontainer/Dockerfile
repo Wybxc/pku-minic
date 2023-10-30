@@ -22,4 +22,10 @@ COPY ./starship.toml /root/.config/starship.toml
 # Install tokei
 RUN cargo install tokei
 
+# Install cargo-bloat
+RUN cargo install cargo-bloat
+
+# Install kani
+RUN cargo install --locked kani-verifier
+
 CMD ["/bin/bash"]
