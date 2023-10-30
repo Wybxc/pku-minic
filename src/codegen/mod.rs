@@ -75,7 +75,12 @@ impl Codegen<&koopa::ir::FunctionData> {
             for &inst in node.insts().keys() {
                 Codegen(inst).generate(&mut block, dfg, &regs, epilogue)?;
             }
-            func.push(block.build());
+            let mut block = block.build();
+
+            // peephole optimization.
+            peephole::optimize(&mut block, opt_level);
+
+            func.push(block);
         }
 
         Ok(func)
