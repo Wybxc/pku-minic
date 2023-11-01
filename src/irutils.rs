@@ -1,6 +1,6 @@
 //! Utility functions for the IR.
 
-use koopa::ir::{dfg::DataFlowGraph, entities::ValueData, Value, ValueKind};
+use koopa::ir::{dfg::DataFlowGraph, entities::ValueData, BasicBlock, Value, ValueKind};
 
 /// Check if a value is a constant.
 ///
@@ -52,7 +52,6 @@ mod test_is_const {
 }
 
 /// Check if a value can terminate a basic block.
-#[allow(dead_code)]
 pub fn is_terminator(inst: &ValueData) -> bool {
     matches!(
         inst.kind(),
@@ -76,4 +75,12 @@ pub fn dbg_inst(inst: Value, dfg: &DataFlowGraph) -> String {
     } else {
         format!("{:?} := {:?}", inst, value.kind())
     }
+}
+
+/// Get the name of a block for debug printing.
+pub fn ident_block(block: BasicBlock, dfg: &DataFlowGraph) -> String {
+    dfg.bb(block)
+        .name()
+        .clone()
+        .unwrap_or_else(|| format!("{:?}", block))
 }

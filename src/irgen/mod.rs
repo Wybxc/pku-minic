@@ -88,8 +88,12 @@ impl ast::Block {
         let entry = func.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         func.layout_mut().bbs_mut().extend([entry]);
 
+        let mut early_return = false;
         for item in self.items {
-            item.build_ir_in(symtable, func, entry)?;
+            item.build_ir_in(symtable, func, entry, &mut early_return)?;
+            if early_return {
+                break;
+            }
         }
 
         // Add a return instruction if the block does not end with a terminator.
@@ -115,10 +119,13 @@ impl ast::BlockItem {
         symtable: &mut SymbolTable,
         func: &mut FunctionData,
         block: BasicBlock,
+        early_return: &mut bool,
     ) -> Result<()> {
         match self {
             ast::BlockItem::Decl { decl } => decl.build_ir_in(symtable, func, block),
-            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, func, block),
+            ast::BlockItem::Stmt { stmt } => {
+                stmt.node.build_ir_in(symtable, func, block, early_return)
+            }
         }
     }
 }
@@ -237,6 +244,7 @@ impl ast::Stmt {
         symtable: &SymbolTable,
         func: &mut FunctionData,
         block: BasicBlock,
+        early_return: &mut bool,
     ) -> Result<()> {
         match self {
             ast::Stmt::Assign { ident, expr } => {
@@ -263,6 +271,8 @@ impl ast::Stmt {
                 let ret = dfg.new_value().ret(Some(expr));
 
                 push_inst(func, block, ret);
+
+                *early_return = true;
             }
         }
         Ok(())
@@ -467,6 +477,7 @@ fn push_inst(func: &mut FunctionData, block: BasicBlock, inst: Value) {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::irutils::*;
     use proptest::prelude::*;
     use std::collections::HashSet;
 
@@ -482,7 +493,7 @@ mod test {
                 for (_, block) in func.layout().bbs() {
                     for &inst in block.insts().keys() {
                         for value in func.dfg().value(inst).kind().value_uses() {
-                            if !crate::irutils::is_const(func.dfg().value(value)) {
+                            if !is_const(func.dfg().value(value)) {
                                 assert!(
                                     defined.contains(&value),
                                     "variable {:?} is used before defined",
@@ -506,16 +517,40 @@ mod test {
             let (program, _) = program.0.build_ir().unwrap();
             for func in program.funcs().values() {
                 for (&bb, block) in func.layout().bbs() {
-                    let last_inst = block.insts().keys().last().unwrap();
+                    let last_inst = block.insts().back_key().unwrap();
                     let value = func.dfg().value(*last_inst);
                     assert!(
-                        crate::irutils::is_terminator(value),
+                        is_terminator(value),
                         "block {} does not end with a terminator",
-                        func.dfg().bb(bb).name().clone().unwrap_or("`unnamed`".to_string())
+                        ident_block(bb, func.dfg())
                     );
                 }
             }
         }
 
+        #[test]
+        fn test_terminator_in_middle(
+            program in ast::arbitrary::arb_comp_unit()
+                .prop_map(ast::display::Displayable)
+        ) {
+            let (program, _) = program.0.build_ir().unwrap();
+            for func in program.funcs().values() {
+                for (&bb, block) in func.layout().bbs() {
+                    let mut cursor = block.insts().cursor(*block.insts().back_key().unwrap());
+                    cursor.move_prev();
+                    while !cursor.is_null() {
+                        let inst = *cursor.key().unwrap();
+                        let value = func.dfg().value(inst);
+                        assert!(
+                            !is_terminator(value),
+                            "terminator {:?} is not at the end of block {}",
+                            inst,
+                            ident_block(bb, func.dfg())
+                        );
+                        cursor.move_prev();
+                    }
+                }
+            }
+        }
     }
 }

@@ -59,7 +59,7 @@ impl Display for ConstDecl {
             }
             write!(f, " {}", def)?;
         }
-        write!(f, ";")
+        writeln!(f, ";")
     }
 }
 
@@ -72,7 +72,7 @@ impl Display for VarDecl {
             }
             write!(f, " {}", def)?;
         }
-        write!(f, ";")
+        writeln!(f, ";")
     }
 }
 
