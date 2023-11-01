@@ -440,3 +440,41 @@ fn push_inst(func: &mut FunctionData, block: BasicBlock, inst: Value) {
         .push_key_back(inst)
         .unwrap();
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    fn sanity_check(program: Program) {
+        for func in program.funcs().values() {
+            let mut defined = HashSet::new();
+            for (_, block) in func.layout().bbs() {
+                for &inst in block.insts().keys() {
+                    for value in func.dfg().value(inst).kind().value_uses() {
+                        if !crate::irutils::is_const(func.dfg().value(value)) {
+                            assert!(
+                                defined.contains(&value),
+                                "variable {:?} is used before defined",
+                                value
+                            );
+                        }
+                    }
+                    if !defined.insert(inst) {
+                        panic!("variable {:?} is defined twice", inst);
+                    }
+                }
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_sanity_check(program in ast::arbitrary::arb_comp_unit()
+                                            .prop_map(ast::display::Displayable)) {
+            let (program, _) = program.0.build_ir().unwrap();
+            sanity_check(program);
+        }
+    }
+}

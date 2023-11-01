@@ -48,27 +48,38 @@ impl SymbolTable {
     }
 }
 
+/// Chain map.
+///
+/// A chain map is a stack of hash maps.
 struct ChainMap<K: Eq + Hash, V> {
     maps: Vec<HashMap<K, V>>,
 }
 
 impl<K: Eq + Hash, V> ChainMap<K, V> {
+    /// Create a new chain map with no scopes.
     fn new() -> Self {
         Self { maps: vec![] }
     }
 
+    /// Push a new scope.
     fn push(&mut self) {
         self.maps.push(HashMap::new());
     }
 
+    /// Pop a scope.
     fn pop(&mut self) {
         self.maps.pop();
     }
 
+    /// Insert a key-value pair.
+    ///
+    /// # Panics
+    /// Panics if there is no scope.
     fn insert(&mut self, key: K, value: V) {
         self.maps.last_mut().unwrap().insert(key, value);
     }
 
+    /// Get a value.
     fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         Q: ?Sized,
@@ -81,5 +92,30 @@ impl<K: Eq + Hash, V> ChainMap<K, V> {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod test_chain_map {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn insert_push_get(key in "[a-z]+", v1 in any::<i32>(), v2 in any::<i32>()) {
+            let mut chain_map = ChainMap::new();
+            chain_map.push();
+
+            chain_map.insert(key.clone(), v1);
+
+            chain_map.push();
+            assert_eq!(chain_map.get(&key), Some(&v1));
+
+            chain_map.insert(key.clone(), v2);
+            assert_eq!(chain_map.get(&key), Some(&v2));
+
+            chain_map.pop();
+            assert_eq!(chain_map.get(&key), Some(&v1));
+        }
     }
 }

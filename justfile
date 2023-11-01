@@ -41,3 +41,8 @@ autotest-perf:
 doc:
     cargo doc --no-deps --document-private-items
     dufs
+
+test:
+    cargo test
+    cargo kani
+    dufs

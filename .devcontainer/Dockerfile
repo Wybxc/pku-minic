@@ -19,13 +19,10 @@ RUN (curl -sS https://starship.rs/install.sh > /tmp/starship.rs)\
  && (echo 'eval "$(starship init bash)"' >> /root/.bashrc)
 COPY ./starship.toml /root/.config/starship.toml
 
-# Install tokei
-RUN cargo install tokei
+# Install cargo-binstall
+RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 
-# Install cargo-bloat
-RUN cargo install cargo-bloat
-
-# Install kani
-RUN cargo install --locked kani-verifier
+# Install useful tools
+RUN cargo binstall --no-confirm tokei cargo-bloat just dufs
 
 CMD ["/bin/bash"]
