@@ -3,8 +3,7 @@
 
 use lalrpop_util::lalrpop_mod;
 
-pub(crate) mod ast;
-
+pub mod ast;
 mod codegen;
 mod irgen;
 pub(crate) mod irutils;

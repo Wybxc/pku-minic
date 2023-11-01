@@ -43,6 +43,8 @@ doc:
     dufs
 
 test:
-    cargo test
-    cargo kani
-    dufs
+    cargo test -- --nocapture
+
+gen-test-case:
+    cargo run --bin gen-test-case --features proptest > hello.c
+    cat hello.c

@@ -116,10 +116,10 @@ impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Stmt::Assign { ident, expr } => {
-                write!(f, "{} = {};", ident, expr)
+                writeln!(f, "{} = {};", ident, expr)
             }
             Stmt::Return { expr } => {
-                write!(f, "return {};", expr)
+                writeln!(f, "return {};", expr)
             }
         }
     }

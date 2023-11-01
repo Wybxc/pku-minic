@@ -1,7 +1,10 @@
+//! Arbitrary AST generator.
+
 use proptest::prelude::*;
 
 use super::*;
 
+/// Local environment.
 #[derive(Debug, Clone, Default)]
 pub struct LocalEnv {
     consts: im::HashSet<String>,
@@ -20,8 +23,13 @@ impl LocalEnv {
     }
 
     /// Check if there are not enough declarations.
-    pub fn enough_decls(&self) -> bool {
-        !(self.consts.is_empty() || self.vars.is_empty())
+    pub fn enough_const_decls(&self) -> bool {
+        !(self.consts.is_empty())
+    }
+
+    /// Check if there are not enough declarations.
+    pub fn enough_var_decls(&self) -> bool {
+        !(self.vars.is_empty())
     }
 
     /// Generate an arbitrary free identifier.
@@ -85,7 +93,7 @@ pub fn arb_block(local: LocalEnv) -> impl Strategy<Value = (Block, LocalEnv)> {
         .prop_recursive(
             32,
             64,
-            10,
+            1,
             |inner: BoxedStrategy<(im::Vector<BlockItem>, LocalEnv)>| {
                 inner.prop_flat_map(|(block, local)| {
                     arb_block_item(local).prop_map(move |(item, local)| {
@@ -104,17 +112,33 @@ pub fn arb_block(local: LocalEnv) -> impl Strategy<Value = (Block, LocalEnv)> {
 
 /// Generate an arbitrary block item.
 pub fn arb_block_item(local: LocalEnv) -> impl Strategy<Value = (BlockItem, LocalEnv)> {
-    let enough_decls = local.enough_decls();
-    let decl = arb_decl(local.clone()).prop_map(|(decl, local)| (BlockItem::Decl { decl }, local));
+    let enough_const_decls = local.enough_const_decls();
+    let enough_var_decls = local.enough_var_decls();
+
+    let const_decl = arb_const_decl(local.clone()).prop_map(|(decl, local)| {
+        let decl = Decl::Const(decl.into_span(0, 0));
+        (BlockItem::Decl { decl }, local)
+    });
+
+    if !enough_const_decls {
+        return const_decl.boxed();
+    }
+
+    let var_decl = arb_var_decl(local.clone()).prop_map(|(decl, local)| {
+        let decl = Decl::Var(decl.into_span(0, 0));
+        (BlockItem::Decl { decl }, local)
+    });
+
+    if !enough_var_decls {
+        return var_decl.boxed();
+    }
+
     let stmt = arb_stmt(local.clone()).prop_map(move |stmt| {
         let stmt = stmt.into_span(0, 0);
         (BlockItem::Stmt { stmt }, local.clone())
     });
-    if !enough_decls {
-        decl.boxed()
-    } else {
-        prop_oneof![decl, stmt].boxed()
-    }
+
+    prop_oneof![1 => const_decl, 2 => var_decl, 12 => stmt].boxed()
 }
 
 /// Generate an arbitrary declaration.
@@ -191,7 +215,7 @@ pub fn arb_return_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
 }
 
 pub fn arb_expr(local: LocalEnv) -> impl Strategy<Value = Expr> {
-    let leaf = if local.enough_decls() {
+    let leaf = if local.enough_var_decls() {
         prop_oneof![
             arb_number_expr(),
             local.clone().arb_var_lvar().prop_map(Expr::LVar)
@@ -246,4 +270,109 @@ pub fn arb_binary_op() -> impl Strategy<Value = BinaryOp> {
         Just(BinaryOp::LAnd),
         Just(BinaryOp::LOr),
     ]
+}
+
+#[cfg(test)]
+mod test {
+    use proptest::{strategy::ValueTree, test_runner::TestRunner};
+
+    use super::*;
+
+    struct Samples<'a, T> {
+        total: usize,
+        current: usize,
+        failed: usize,
+        gen: BoxedStrategy<T>,
+        runner: &'a mut TestRunner,
+    }
+
+    impl<'a, T> Samples<'a, T> {
+        fn new(gen: BoxedStrategy<T>, runner: &'a mut TestRunner, total: usize) -> Self {
+            Samples {
+                total,
+                current: 0,
+                failed: 0,
+                gen,
+                runner,
+            }
+        }
+    }
+
+    impl<'a, T> Iterator for Samples<'a, T>
+    where
+        T: std::fmt::Debug,
+    {
+        type Item = T;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.current >= self.total {
+                return None;
+            }
+            loop {
+                match self.gen.new_tree(self.runner) {
+                    Ok(tree) => {
+                        self.current += 1;
+                        return Some(tree.current());
+                    }
+                    Err(_) => {
+                        self.failed += 1;
+                        if self.failed > self.total / 2 {
+                            panic!("too many failed samples");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn samples(runner: &mut TestRunner, n: usize) -> Samples<CompUnit> {
+        let gen = arb_comp_unit().boxed();
+        Samples::new(gen, runner, n)
+    }
+
+    #[test]
+    fn test_stmt_coverage() {
+        const N: usize = 10000;
+
+        let mut runner = TestRunner::default();
+        let samples = samples(&mut runner, N);
+
+        let mut decls = 0;
+        let mut stmts = 0;
+
+        for (i, ast) in samples.enumerate() {
+            for item in ast.func_def.block.node.items {
+                match item {
+                    BlockItem::Decl { .. } => decls += 1,
+                    BlockItem::Stmt { .. } => stmts += 1,
+                }
+            }
+            if i % 1000 == 0 {
+                println!("{} samples generated", i);
+            }
+        }
+
+        let total = decls + stmts;
+        let decl_ratio = (decls as f64) / (total as f64);
+        let stmt_ratio = (stmts as f64) / (total as f64);
+
+        println!(
+            "decls: {:.2}% stmts: {:.2}%",
+            decl_ratio * 100.0,
+            stmt_ratio * 100.0
+        );
+
+        assert!(
+            decl_ratio > 0.4,
+            "too few decls, {} out of {}",
+            decls,
+            total
+        );
+        assert!(
+            stmt_ratio > 0.5,
+            "too few stmts, {} out of {}",
+            stmts,
+            total
+        );
+    }
 }

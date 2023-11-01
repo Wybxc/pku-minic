@@ -1,8 +1,9 @@
 //! Abstract Syntax Tree.
+#![allow(missing_docs)]
 
 use std::ops::Range;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "proptest"))]
 pub mod arbitrary;
 pub(crate) mod display;
 

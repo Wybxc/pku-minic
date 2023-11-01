@@ -48,6 +48,12 @@ impl SymbolTable {
     }
 }
 
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Chain map.
 ///
 /// A chain map is a stack of hash maps.

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Zhuang Jiayi <wybxc@stu.pku.edu.cn>"]
 description = "A compiler for the SysY language"
+default-run = "pku-minic"
 
 [dependencies]
 clio = "0.3.4"
@@ -19,9 +20,19 @@ pretty_env_logger = "0.5.0"
 regex = "1.9.5"
 slotmap = "1.0.6"
 thiserror = "1.0.49"
+proptest = { version = "1.3.1", optional = true }
 
 [build-dependencies]
 lalrpop = "0.20.0"
 
 [dev-dependencies]
 proptest = "1.3.1"
+
+[features]
+default = []
+proptest = ["dep:proptest"]
+
+[[bin]]
+name = "gen-test-case"
+path = "src/bin/gen_test_case.rs"
+test = false
