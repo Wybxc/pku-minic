@@ -272,7 +272,7 @@ pub fn arb_binary_op() -> impl Strategy<Value = BinaryOp> {
     ]
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "arb-coverage"))]
 mod test {
     use proptest::{strategy::ValueTree, test_runner::TestRunner};
 

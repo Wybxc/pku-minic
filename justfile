@@ -43,7 +43,10 @@ doc:
     dufs
 
 test:
-    cargo test -- --nocapture
+    cargo test
+
+test-arbitrary:
+    cargo test --all-features -- --nocapture
 
 gen-test-case:
     cargo run --bin gen-test-case --features proptest > hello.c

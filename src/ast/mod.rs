@@ -54,7 +54,7 @@ impl Spanned for FuncDef {
 /// ```text
 /// FuncType ::= "int"
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum FuncType {
     Int,
 }

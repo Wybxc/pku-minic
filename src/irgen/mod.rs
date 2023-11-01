@@ -1,13 +1,10 @@
 //! Build IR from AST.
-//!
-//! TODO: Sanity check.
-//!   - [ ] Check if all variables are declared before use.
-//!   - [ ] Check if all instructions have unique value id.
 
 use crate::ast::Spanned;
 use crate::irgen::metadata::FunctionMetadata;
 use crate::{ast, irgen::metadata::ProgramMetadata};
 use koopa::ir::builder_traits::*;
+use koopa::ir::dfg::DataFlowGraph;
 use koopa::ir::*;
 use miette::Result;
 
@@ -58,7 +55,9 @@ impl ast::FuncDef {
         let func_metadata = FunctionMetadata::new(self.ident);
         metadata.functions.insert(func, func_metadata);
 
-        self.block.node.build_ir_in(symtable, func_data)
+        self.block
+            .node
+            .build_ir_in(symtable, func_data, self.func_type.node)
     }
 }
 
@@ -69,16 +68,40 @@ impl ast::FuncType {
             ast::FuncType::Int => Type::get_i32(),
         }
     }
+
+    /// Default value of the type.
+    pub fn default_value(self, dfg: &mut DataFlowGraph) -> Value {
+        match self {
+            ast::FuncType::Int => dfg.new_value().integer(0),
+        }
+    }
 }
 
 impl ast::Block {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, func: &mut FunctionData) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        func: &mut FunctionData,
+        rty: ast::FuncType,
+    ) -> Result<()> {
         let entry = func.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         func.layout_mut().bbs_mut().extend([entry]);
 
         for item in self.items {
             item.build_ir_in(symtable, func, entry)?;
+        }
+
+        // Add a return instruction if the block does not end with a terminator.
+        let insts = func.layout_mut().bb_mut(entry).insts_mut();
+        let last_inst = insts.back_key().copied();
+        if last_inst.is_none()
+            || last_inst.is_some_and(|inst| !crate::irutils::is_terminator(func.dfg().value(inst)))
+        {
+            let dfg = func.dfg_mut();
+            let value = rty.default_value(dfg);
+            let inst = dfg.new_value().ret(Some(value));
+            push_inst(func, entry, inst);
         }
 
         Ok(())
@@ -447,34 +470,52 @@ mod test {
     use proptest::prelude::*;
     use std::collections::HashSet;
 
-    fn sanity_check(program: Program) {
-        for func in program.funcs().values() {
-            let mut defined = HashSet::new();
-            for (_, block) in func.layout().bbs() {
-                for &inst in block.insts().keys() {
-                    for value in func.dfg().value(inst).kind().value_uses() {
-                        if !crate::irutils::is_const(func.dfg().value(value)) {
-                            assert!(
-                                defined.contains(&value),
-                                "variable {:?} is used before defined",
-                                value
-                            );
+    proptest! {
+        #[test]
+        fn test_variables(
+            program in ast::arbitrary::arb_comp_unit()
+                .prop_map(ast::display::Displayable)
+        ) {
+            let (program, _) = program.0.build_ir().unwrap();
+            for func in program.funcs().values() {
+                let mut defined = HashSet::new();
+                for (_, block) in func.layout().bbs() {
+                    for &inst in block.insts().keys() {
+                        for value in func.dfg().value(inst).kind().value_uses() {
+                            if !crate::irutils::is_const(func.dfg().value(value)) {
+                                assert!(
+                                    defined.contains(&value),
+                                    "variable {:?} is used before defined",
+                                    value
+                                );
+                            }
                         }
-                    }
-                    if !defined.insert(inst) {
-                        panic!("variable {:?} is defined twice", inst);
+                        if !defined.insert(inst) {
+                            panic!("variable {:?} is defined twice", inst);
+                        }
                     }
                 }
             }
         }
-    }
 
-    proptest! {
         #[test]
-        fn test_sanity_check(program in ast::arbitrary::arb_comp_unit()
-                                            .prop_map(ast::display::Displayable)) {
+        fn test_basic_block_end(
+            program in ast::arbitrary::arb_comp_unit()
+                .prop_map(ast::display::Displayable)
+        ) {
             let (program, _) = program.0.build_ir().unwrap();
-            sanity_check(program);
+            for func in program.funcs().values() {
+                for (&bb, block) in func.layout().bbs() {
+                    let last_inst = block.insts().keys().last().unwrap();
+                    let value = func.dfg().value(*last_inst);
+                    assert!(
+                        crate::irutils::is_terminator(value),
+                        "block {} does not end with a terminator",
+                        func.dfg().bb(bb).name().clone().unwrap_or("`unnamed`".to_string())
+                    );
+                }
+            }
         }
+
     }
 }

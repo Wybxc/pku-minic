@@ -51,6 +51,15 @@ mod test_is_const {
     }
 }
 
+/// Check if a value can terminate a basic block.
+#[allow(dead_code)]
+pub fn is_terminator(inst: &ValueData) -> bool {
+    matches!(
+        inst.kind(),
+        ValueKind::Branch(_) | ValueKind::Return(_) | ValueKind::Jump(_)
+    )
+}
+
 /// Get the name of a value for debug printing.
 pub fn ident_inst(inst: Value, dfg: &DataFlowGraph) -> String {
     dfg.value(inst)
