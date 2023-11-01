@@ -62,6 +62,16 @@ impl LocalEnv {
                 prop::sample::select(vars).prop_map(|ident| ident.into_span(0, 0))
             })
     }
+
+    /// Generate an arbitrary variable identifier.
+    pub fn arb_var_rvar(self) -> impl Strategy<Value = Span<String>> {
+        let vars: Vec<_> = self.vars.into_iter().chain(self.consts).collect();
+        Just(vars)
+            .prop_filter("vars must not be empty", |vars| !vars.is_empty())
+            .prop_flat_map(|vars| {
+                prop::sample::select(vars).prop_map(|ident| ident.into_span(0, 0))
+            })
+    }
 }
 
 /// Generate an arbitrary program.
@@ -202,7 +212,10 @@ pub fn arb_const_expr(_local: LocalEnv) -> impl Strategy<Value = ConstExpr> {
 }
 
 pub fn arb_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
-    prop_oneof![arb_assign_stmt(local.clone()), arb_return_stmt(local),]
+    prop_oneof![
+        5 => arb_assign_stmt(local.clone()),
+        1 => arb_return_stmt(local),
+    ]
 }
 
 pub fn arb_assign_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
@@ -218,7 +231,7 @@ pub fn arb_expr(local: LocalEnv) -> impl Strategy<Value = Expr> {
     let leaf = if local.enough_var_decls() {
         prop_oneof![
             arb_number_expr(),
-            local.clone().arb_var_lvar().prop_map(Expr::LVar)
+            local.clone().arb_var_rvar().prop_map(Expr::LVar)
         ]
         .boxed()
     } else {
@@ -362,17 +375,62 @@ mod test {
             stmt_ratio * 100.0
         );
 
-        assert!(
-            decl_ratio > 0.4,
-            "too few decls, {} out of {}",
-            decls,
-            total
+        assert!(decl_ratio > 0.4, "too few decls, {decls} out of {total}",);
+        assert!(stmt_ratio > 0.5, "too few stmts, {stmts} out of {total}",);
+    }
+
+    #[test]
+    fn test_return_coverage() {
+        const N: usize = 10000;
+
+        let mut runner = TestRunner::default();
+        let samples = samples(&mut runner, N);
+
+        let mut have_returns = 0;
+        let mut multiple_returns = 0;
+
+        for (i, ast) in samples.enumerate() {
+            let returns = ast
+                .func_def
+                .block
+                .node
+                .items
+                .iter()
+                .filter(|item| match item {
+                    BlockItem::Stmt { stmt } => matches!(stmt.node, Stmt::Return { .. }),
+                    _ => false,
+                })
+                .count();
+            if returns > 0 {
+                have_returns += 1;
+            }
+            if returns > 1 {
+                multiple_returns += 1;
+            }
+
+            if i % 1000 == 0 {
+                println!("{} samples generated", i);
+            }
+        }
+
+        let total = N;
+        let have_return_ratio = (have_returns as f64) / (total as f64);
+        let multiple_return_ratio = (multiple_returns as f64) / (total as f64);
+
+        println!(
+            "have_returns: {:.2}% multiple_returns: {:.2}%",
+            have_return_ratio * 100.0,
+            multiple_return_ratio * 100.0
         );
+
         assert!(
-            stmt_ratio > 0.5,
-            "too few stmts, {} out of {}",
-            stmts,
-            total
+            have_return_ratio > 0.5,
+            "too few have_returns, {have_returns} out of {total}",
+        );
+
+        assert!(
+            multiple_return_ratio < 0.2,
+            "too many multiple_returns, {multiple_returns} out of {total}",
         );
     }
 }

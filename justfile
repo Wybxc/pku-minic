@@ -22,8 +22,8 @@ perf:
     cargo run -- -perf {{test_c}} -o {{test_riscv}}
     cat {{test_riscv}}
 
-llvm args="": koopa
-    koopac {{test_koopa}} -o {{test_llvm}}
+llvm args="":
+    clang -S -emit-llvm {{test_c}} -o {{test_llvm}}
     llc {{test_llvm}} -o {{test_llvm_riscv}} -march=riscv32 -mattr=+m,+relax {{args}}
     cat {{test_llvm_riscv}}
 
@@ -49,5 +49,5 @@ test-arbitrary:
     cargo test --all-features -- --nocapture
 
 gen-test-case:
-    cargo run --bin gen-test-case --features proptest > hello.c
+    cargo run --features proptest -- -gen-test-case > hello.c
     cat hello.c

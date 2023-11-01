@@ -33,7 +33,3 @@ default = []
 proptest = ["dep:proptest"]
 arb-coverage = []
 
-[[bin]]
-name = "gen-test-case"
-path = "src/bin/gen_test_case.rs"
-test = false
