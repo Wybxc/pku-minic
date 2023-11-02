@@ -87,6 +87,7 @@ impl Display for RegId {
 }
 
 /// A set of registers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegSet<const MASK: u32 = { u32::MAX }> {
     bitset: u32,
 }
@@ -107,6 +108,11 @@ impl<const MASK: u32> RegSet<MASK> {
     /// Create a new empty register set.
     pub const fn new() -> Self {
         Self { bitset: 0 }
+    }
+
+    /// Create a register set from a bitset.
+    pub const fn from_bitset(bitset: u32) -> Self {
+        Self { bitset }
     }
 
     /// Create a full register set.
@@ -590,6 +596,16 @@ impl<'a> Cursor<'a> {
     /// If the cursor is null, this function does nothing.
     pub fn remove_and_next(&mut self) {
         self.cursor.remove_current();
+    }
+
+    /// Remove the current instruction, and move the cursor to the previous instruction.
+    ///
+    /// If the cursor is null, this function does nothing.
+    pub fn remove_and_prev(&mut self) {
+        self.cursor.remove_current();
+        if !self.cursor.is_null() {
+            self.cursor.move_prev();
+        }
     }
 }
 
