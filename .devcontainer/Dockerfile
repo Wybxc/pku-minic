@@ -1,7 +1,7 @@
 FROM maxxing/compiler-dev
 
 # Install additional packages
-RUN apt-get update && apt-get install curl vim -y
+RUN apt-get update && apt-get install curl vim valgrind -y
 
 # Update rust toolchain
 RUN rustup update

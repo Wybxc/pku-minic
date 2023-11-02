@@ -32,3 +32,6 @@ default = []
 proptest = ["dep:proptest"]
 arb-coverage = []
 
+[profile.profiling]
+inherits = "release"
+debug = true
