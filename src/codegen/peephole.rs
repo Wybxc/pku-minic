@@ -155,6 +155,10 @@ pub fn optimize(block: &mut Block, opt_level: u8) {
     if opt_level >= 1 {
         reduce_unused_values(block);
     }
+
+    if opt_level >= 2 {
+        while reduce_unused_values(block) {}
+    }
 }
 
 /// Reduce unused values.
@@ -173,7 +177,8 @@ pub fn optimize(block: &mut Block, opt_level: u8) {
 /// mv a5, a2
 /// sub a4, a1, a2
 /// ```
-fn reduce_unused_values(block: &mut Block) {
+fn reduce_unused_values(block: &mut Block) -> bool {
+    let mut dirty = false;
     if let Some(front) = block.front() {
         let mut cursor = block.cursor(front);
         while !cursor.is_null() {
@@ -198,10 +203,13 @@ fn reduce_unused_values(block: &mut Block) {
                 }
             }
             if delete {
+                log::debug!("RUV: deleting {}", inst);
+                dirty = true;
                 cursor.remove_and_next();
             } else {
                 cursor.next();
             }
         }
     }
+    dirty
 }

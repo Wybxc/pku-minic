@@ -98,13 +98,14 @@ pub fn arb_func_type() -> impl Strategy<Value = FuncType> {
 
 /// Generate an arbitrary block.
 pub fn arb_block(local: LocalEnv) -> impl Strategy<Value = (Block, LocalEnv)> {
-    arb_block_item(local)
+    arb_block_item(local) // The first block item
         .prop_map(|(item, local)| (im::vector![item], local))
         .prop_recursive(
             32,
             64,
             1,
             |inner: BoxedStrategy<(im::Vector<BlockItem>, LocalEnv)>| {
+                // Append a new block item to the end of the block
                 inner.prop_flat_map(|(block, local)| {
                     arb_block_item(local).prop_map(move |(item, local)| {
                         let mut block = block.clone();
