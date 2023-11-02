@@ -115,9 +115,6 @@ _Arguments_:
 }
 
 fn main() -> Result<()> {
-    // Setup panic hook
-    human_panic::setup_panic!();
-
     // Setup logger
     pretty_env_logger::init();
 
