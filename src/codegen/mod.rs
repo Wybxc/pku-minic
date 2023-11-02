@@ -17,6 +17,8 @@ mod imm;
 mod peephole;
 mod register;
 pub mod riscv;
+#[cfg(any(test, feature = "proptest"))]
+pub mod simulate;
 
 use crate::{
     irgen::metadata::{FunctionMetadata, ProgramMetadata},
@@ -289,5 +291,37 @@ impl Codegen<&koopa::ir::entities::ValueData> {
 
     fn is_const(&self) -> bool {
         irutils::is_const(self.0)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::ast;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn opt_correct(
+            regs in simulate::Regs::arbitrary(),
+            program in ast::arbitrary::arb_comp_unit().prop_map(ast::display::Displayable),
+        ) {
+            let (program, meta) = program.0.build_ir().unwrap();
+            let program_o0 = Codegen(&program).generate(&meta, 0).unwrap();
+            let program_o1 = Codegen(&program).generate(&meta, 1).unwrap();
+
+            let mut regs1 = regs.clone();
+            let mut mem1 = simulate::Memory::new();
+            simulate::simulate(&program_o0, &mut regs1, &mut mem1);
+            simulate::erase_temp_regs(&mut regs1);
+
+            let mut regs2 = regs.clone();
+            let mut mem2 = simulate::Memory::new();
+            simulate::simulate(&program_o1, &mut regs2, &mut mem2);
+            simulate::erase_temp_regs(&mut regs2);
+
+            assert_eq!(regs1, regs2);
+            assert_eq!(mem1, mem2);
+        }
     }
 }

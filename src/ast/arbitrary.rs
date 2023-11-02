@@ -81,7 +81,7 @@ pub fn arb_comp_unit() -> impl Strategy<Value = CompUnit> {
 
 /// Generate an arbitrary function definition.
 pub fn arb_func_def() -> impl Strategy<Value = FuncDef> {
-    let strg_ident = "[a-zA-Z][a-zA-Z0-9_]*".prop_map(String::from);
+    let strg_ident = "main".prop_map(String::from);
     (arb_func_type(), strg_ident, arb_block(LocalEnv::default())).prop_map(
         |(func_type, ident, (block, _))| FuncDef {
             func_type: func_type.into_span(0, 0),

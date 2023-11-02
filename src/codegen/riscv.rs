@@ -408,9 +408,9 @@ impl Inst {
             Inst::Lb(_, _, rs) => [None, Some(rs)],
             Inst::Lh(_, _, rs) => [None, Some(rs)],
             Inst::Lw(_, _, rs) => [None, Some(rs)],
-            Inst::Sb(_, _, rs) => [None, Some(rs)],
-            Inst::Sh(_, _, rs) => [None, Some(rs)],
-            Inst::Sw(_, _, rs) => [None, Some(rs)],
+            Inst::Sb(rs1, _, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Sh(rs1, _, rs2) => [Some(rs1), Some(rs2)],
+            Inst::Sw(rs1, _, rs2) => [Some(rs1), Some(rs2)],
             Inst::Lbu(_, _, rs) => [None, Some(rs)],
             Inst::Lhu(_, _, rs) => [None, Some(rs)],
             Inst::Ret => [None, None],
@@ -517,6 +517,11 @@ impl Block {
         Cursor {
             cursor: self.instructions.cursor_mut(id),
         }
+    }
+
+    /// Get an iterator over the instructions in the basic block.
+    pub fn insts(&self) -> impl Iterator<Item = (InstId, Inst)> + '_ {
+        self.instructions.iter().map(|(&id, node)| (id, node.inst))
     }
 }
 
