@@ -10,14 +10,15 @@ use super::imm::i12;
 
 /// RISC-V register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
+#[repr(u8)]
+#[allow(dead_code, missing_docs)]
 pub enum RegId {
-    X0, // zero
-    RA, // return address
-    SP, // stack pointer
-    GP, // global pointer
-    TP, // thread pointer
-    A0, // arguments / return values
+    X0 = 0, // zero
+    RA,     // return address
+    SP,     // stack pointer
+    GP,     // global pointer
+    TP,     // thread pointer
+    A0,     // arguments / return values
     A1,
     A2, // arguments
     A3,
@@ -82,6 +83,63 @@ impl Display for RegId {
             RegId::S10 => write!(f, "s10"),
             RegId::S11 => write!(f, "s11"),
         }
+    }
+}
+
+/// A set of registers.
+pub struct RegSet<const MASK: u32 = { u32::MAX }> {
+    bitset: u32,
+}
+
+macro_rules! make_reg_set {
+    ($($reg:ident),+) => {
+        {
+            let mut set = 0u32;
+            $(set |= 1 << RegId::$reg as u32;)*
+            set
+        }
+    };
+}
+
+pub(crate) use make_reg_set;
+
+impl<const MASK: u32> RegSet<MASK> {
+    /// Create a new empty register set.
+    pub const fn new() -> Self {
+        Self { bitset: 0 }
+    }
+
+    /// Create a full register set.
+    pub const fn full() -> Self {
+        Self { bitset: MASK }
+    }
+
+    /// Insert a register into the set.
+    pub fn insert(&mut self, reg: RegId) {
+        self.bitset |= 1 << reg as u32;
+        self.bitset &= MASK;
+    }
+
+    /// Remove a register from the set.
+    pub fn remove(&mut self, reg: RegId) {
+        self.bitset &= !(1 << reg as u32);
+    }
+
+    /// Check if the set contains a register.
+    pub fn contains(&self, reg: RegId) -> bool {
+        self.bitset & (1 << reg as u32) != 0
+    }
+
+    /// Get an iterator over the registers in the set.
+    pub fn iter(&self) -> impl Iterator<Item = RegId> + '_ {
+        (0..32u8).filter_map(move |i| {
+            if self.bitset & (1 << i) != 0 {
+                // SAFETY: `i` is in the range of `RegId`.
+                Some(unsafe { std::mem::transmute(i) })
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -433,6 +491,11 @@ impl Block {
         self.instructions.len()
     }
 
+    /// Check if the basic block is empty.
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
+    }
+
     /// The first instruction id in the basic block.
     pub fn front(&self) -> Option<InstId> {
         self.instructions.front_key().copied()
@@ -551,7 +614,9 @@ impl Iterator for Follow<'_> {
 
 /// RISC-V function.
 pub struct Function {
+    /// Name of the function.
     pub name: String,
+    /// Basic blocks in the function.
     pub blocks: Vec<Block>,
 }
 
@@ -574,9 +639,14 @@ impl Function {
         self.blocks.len()
     }
 
+    /// Check if the function is empty.
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+
     /// Create a new block with a unique label.
     pub fn new_block(&self) -> Block {
-        let label = if self.len() > 0 {
+        let label = if !self.is_empty() {
             format!("{}{}", self.name, self.len())
         } else {
             self.name.clone()
@@ -598,6 +668,7 @@ impl Display for Function {
 
 /// RISC-V program.
 pub struct Program {
+    /// Functions in the program.
     pub functions: Vec<Function>,
 }
 

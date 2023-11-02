@@ -4,8 +4,8 @@
 use lalrpop_util::lalrpop_mod;
 
 pub mod ast;
-mod codegen;
-mod irgen;
+pub mod codegen;
+pub mod irgen;
 pub mod irutils;
 
 lalrpop_mod!(sysy);

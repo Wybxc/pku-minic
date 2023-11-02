@@ -65,7 +65,11 @@ use owo_colors::OwoColorize;
 use super::riscv::RegId;
 use crate::{
     ast::Spanned,
-    codegen::{error::CodegenError, imm::i12},
+    codegen::{
+        error::CodegenError,
+        imm::i12,
+        riscv::{make_reg_set, RegSet},
+    },
     irgen::metadata::FunctionMetadata,
     irutils,
 };
@@ -79,31 +83,16 @@ pub enum Storage {
     Slot(i12),
 }
 
-/// Count of registers that can be used.
+/// Ids of registers that can be used.
 /// There are 15 registers in total (a0..a7, t0..t6), but we reserve
 /// a0 for return value, and t0..t1 for temporary storage.
-const REG_LOCAL_COUNT: usize = 12;
-
-/// Ids of registers that can be used.
-const REG_LOCAL: [RegId; REG_LOCAL_COUNT] = [
-    RegId::A1,
-    RegId::A2,
-    RegId::A3,
-    RegId::A4,
-    RegId::A5,
-    RegId::A6,
-    RegId::A7,
-    RegId::T2,
-    RegId::T3,
-    RegId::T4,
-    RegId::T5,
-    RegId::T6,
-];
+const REG_LOCAL_MASK: u32 = make_reg_set!(A1, A2, A3, A4, A5, A6, A7, T2, T3, T4, T5, T6);
+type LocalRegSet = RegSet<REG_LOCAL_MASK>;
 
 impl Storage {
-    fn local(self) -> Option<usize> {
+    fn local(self) -> Option<RegId> {
         match self {
-            Storage::Reg(reg) => REG_LOCAL.iter().position(|&r| r == reg),
+            Storage::Reg(reg) => Some(reg),
             _ => None,
         }
     }
@@ -162,12 +151,12 @@ impl RegAlloc {
         for (&bb, node) in func.layout().bbs() {
             // Free registers. Initially all registers are free, and we will
             // change the status while scanning the instructions.
-            let mut free = [true; REG_LOCAL_COUNT];
+            let mut free = LocalRegSet::full();
             for &val in live_in[&bb].iter() {
                 // live variables must be allocated before, since basic blocks
                 // are in topological order.
                 if let Some(reg) = map[&val].local() {
-                    free[reg] = false;
+                    free.remove(reg);
                 }
             }
 
@@ -175,7 +164,7 @@ impl RegAlloc {
                 // Drop dead variables.
                 for val in live_out[&inst].iter().filter_map(|&v| v) {
                     if let Some(reg) = map[&val].local() {
-                        free[reg] = true;
+                        free.insert(reg);
                     }
                 }
 
@@ -183,15 +172,16 @@ impl RegAlloc {
                 let value = func.dfg().value(inst);
                 if !value.ty().is_unit() {
                     // Not a unit type, allocate a register.
-                    if let Some(reg) = free.iter().position(|&f| f) {
+                    let try_reg = free.iter().next();
+                    if let Some(reg) = try_reg {
                         // Found a free register.
-                        map.insert(inst, Storage::Reg(REG_LOCAL[reg]));
-                        free[reg] = false;
+                        map.insert(inst, Storage::Reg(reg));
+                        free.remove(reg);
 
                         log::debug!(
                             "REG: allocate `{}` to `{}` (at {})",
                             irutils::ident_inst(inst, func.dfg()),
-                            REG_LOCAL[reg],
+                            reg,
                             irutils::dbg_inst(inst, func.dfg()).bright_black()
                         );
                     } else {
