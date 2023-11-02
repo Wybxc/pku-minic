@@ -43,7 +43,7 @@ doc:
     dufs
 
 test:
-    cargo test
+    RUST_BACKTRACE=0 cargo test
 
 test-arbitrary:
     cargo test --all-features -- --nocapture
@@ -51,3 +51,10 @@ test-arbitrary:
 gen-test-case:
     cargo run --features proptest -- -gen-test-case > hello.c
     cat hello.c
+
+build-timings:
+    cargo clean
+    cargo build --release --timings
+
+bloat:
+    cargo bloat --release --crates --split-std
