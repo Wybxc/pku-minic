@@ -1,6 +1,11 @@
 //! Abstract Syntax Tree.
+#![allow(missing_docs)]
 
 use std::ops::Range;
+
+#[cfg(any(test, feature = "proptest"))]
+pub mod arbitrary;
+pub(crate) mod display;
 
 /// Compilation Unit
 ///
@@ -49,7 +54,7 @@ impl Spanned for FuncDef {
 /// ```text
 /// FuncType ::= "int"
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum FuncType {
     Int,
 }
@@ -63,7 +68,7 @@ impl NonSpanned for FuncType {}
 /// ```
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub items: Vec<BlockItem>,
+    pub items: im::Vector<BlockItem>,
 }
 
 impl NonSpanned for Block {}
@@ -130,7 +135,7 @@ impl Spanned for Decl {
 #[derive(Debug, Clone)]
 pub struct ConstDecl {
     pub ty: Span<BType>,
-    pub defs: Vec<ConstDef>,
+    pub defs: im::Vector<ConstDef>,
 }
 
 impl NonSpanned for ConstDecl {}
@@ -164,7 +169,7 @@ impl Spanned for ConstDef {
 #[derive(Debug, Clone)]
 pub struct VarDecl {
     pub ty: Span<BType>,
-    pub defs: Vec<VarDef>,
+    pub defs: im::Vector<VarDef>,
 }
 
 impl NonSpanned for VarDecl {}
@@ -398,5 +403,14 @@ impl<T> Spanned for Span<T> {
 
     fn end_pos(&self) -> usize {
         self.end
+    }
+}
+
+impl<T> std::fmt::Display for Span<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.node)
     }
 }

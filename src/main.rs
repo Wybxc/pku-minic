@@ -49,6 +49,19 @@ _Arguments_:
                 opt_level = 3;
                 Mode::Perf
             }
+            #[cfg(feature = "proptest")]
+            Some("-gen-test-case") => {
+                // TODO: add this to help message
+                use proptest::{
+                    strategy::{Strategy, ValueTree},
+                    test_runner::TestRunner,
+                };
+                let mut runner = TestRunner::default();
+                let gen = pku_minic::ast::arbitrary::arb_comp_unit();
+                let ast = gen.new_tree(&mut runner).unwrap().current();
+                println!("{}", ast);
+                std::process::exit(0);
+            }
             Some("-help") => {
                 // Print help message and exit
                 println!("{}", Self::help());

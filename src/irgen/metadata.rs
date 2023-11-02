@@ -12,6 +12,7 @@ use crate::ast::Span;
 
 /// Program metadata.
 pub struct ProgramMetadata {
+    /// Metadata for functions.
     pub functions: HashMap<Function, FunctionMetadata>,
 }
 

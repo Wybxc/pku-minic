@@ -1,13 +1,10 @@
 //! Build IR from AST.
-//!
-//! TODO: Sanity check.
-//!   - [ ] Check if all variables are declared before use.
-//!   - [ ] Check if all instructions have unique value id.
 
 use crate::ast::Spanned;
 use crate::irgen::metadata::FunctionMetadata;
 use crate::{ast, irgen::metadata::ProgramMetadata};
 use koopa::ir::builder_traits::*;
+use koopa::ir::dfg::DataFlowGraph;
 use koopa::ir::*;
 use miette::Result;
 
@@ -58,7 +55,9 @@ impl ast::FuncDef {
         let func_metadata = FunctionMetadata::new(self.ident);
         metadata.functions.insert(func, func_metadata);
 
-        self.block.node.build_ir_in(symtable, func_data)
+        self.block
+            .node
+            .build_ir_in(symtable, func_data, self.func_type.node)
     }
 }
 
@@ -69,16 +68,44 @@ impl ast::FuncType {
             ast::FuncType::Int => Type::get_i32(),
         }
     }
+
+    /// Default value of the type.
+    pub fn default_value(self, dfg: &mut DataFlowGraph) -> Value {
+        match self {
+            ast::FuncType::Int => dfg.new_value().integer(0),
+        }
+    }
 }
 
 impl ast::Block {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, func: &mut FunctionData) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        func: &mut FunctionData,
+        rty: ast::FuncType,
+    ) -> Result<()> {
         let entry = func.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         func.layout_mut().bbs_mut().extend([entry]);
 
+        let mut early_return = false;
         for item in self.items {
-            item.build_ir_in(symtable, func, entry)?;
+            item.build_ir_in(symtable, func, entry, &mut early_return)?;
+            if early_return {
+                break;
+            }
+        }
+
+        // Add a return instruction if the block does not end with a terminator.
+        let insts = func.layout_mut().bb_mut(entry).insts_mut();
+        let last_inst = insts.back_key().copied();
+        if last_inst.is_none()
+            || last_inst.is_some_and(|inst| !crate::irutils::is_terminator(func.dfg().value(inst)))
+        {
+            let dfg = func.dfg_mut();
+            let value = rty.default_value(dfg);
+            let inst = dfg.new_value().ret(Some(value));
+            push_inst(func, entry, inst);
         }
 
         Ok(())
@@ -92,10 +119,13 @@ impl ast::BlockItem {
         symtable: &mut SymbolTable,
         func: &mut FunctionData,
         block: BasicBlock,
+        early_return: &mut bool,
     ) -> Result<()> {
         match self {
             ast::BlockItem::Decl { decl } => decl.build_ir_in(symtable, func, block),
-            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, func, block),
+            ast::BlockItem::Stmt { stmt } => {
+                stmt.node.build_ir_in(symtable, func, block, early_return)
+            }
         }
     }
 }
@@ -214,6 +244,7 @@ impl ast::Stmt {
         symtable: &SymbolTable,
         func: &mut FunctionData,
         block: BasicBlock,
+        early_return: &mut bool,
     ) -> Result<()> {
         match self {
             ast::Stmt::Assign { ident, expr } => {
@@ -240,6 +271,8 @@ impl ast::Stmt {
                 let ret = dfg.new_value().ret(Some(expr));
 
                 push_inst(func, block, ret);
+
+                *early_return = true;
             }
         }
         Ok(())
@@ -439,4 +472,85 @@ fn push_inst(func: &mut FunctionData, block: BasicBlock, inst: Value) {
         .insts_mut()
         .push_key_back(inst)
         .unwrap();
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::irutils::*;
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    proptest! {
+        #[test]
+        fn test_variables(
+            program in ast::arbitrary::arb_comp_unit()
+                .prop_map(ast::display::Displayable)
+        ) {
+            let (program, _) = program.0.build_ir().unwrap();
+            for func in program.funcs().values() {
+                let mut defined = HashSet::new();
+                for (_, block) in func.layout().bbs() {
+                    for &inst in block.insts().keys() {
+                        for value in func.dfg().value(inst).kind().value_uses() {
+                            if !is_const(func.dfg().value(value)) {
+                                assert!(
+                                    defined.contains(&value),
+                                    "variable {:?} is used before defined",
+                                    value
+                                );
+                            }
+                        }
+                        if !defined.insert(inst) {
+                            panic!("variable {:?} is defined twice", inst);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_basic_block_end(
+            program in ast::arbitrary::arb_comp_unit()
+                .prop_map(ast::display::Displayable)
+        ) {
+            let (program, _) = program.0.build_ir().unwrap();
+            for func in program.funcs().values() {
+                for (&bb, block) in func.layout().bbs() {
+                    let last_inst = block.insts().back_key().unwrap();
+                    let value = func.dfg().value(*last_inst);
+                    assert!(
+                        is_terminator(value),
+                        "block {} does not end with a terminator",
+                        ident_block(bb, func.dfg())
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn test_terminator_in_middle(
+            program in ast::arbitrary::arb_comp_unit()
+                .prop_map(ast::display::Displayable)
+        ) {
+            let (program, _) = program.0.build_ir().unwrap();
+            for func in program.funcs().values() {
+                for (&bb, block) in func.layout().bbs() {
+                    let mut cursor = block.insts().cursor(*block.insts().back_key().unwrap());
+                    cursor.move_prev();
+                    while !cursor.is_null() {
+                        let inst = *cursor.key().unwrap();
+                        let value = func.dfg().value(inst);
+                        assert!(
+                            !is_terminator(value),
+                            "terminator {:?} is not at the end of block {}",
+                            inst,
+                            ident_block(bb, func.dfg())
+                        );
+                        cursor.move_prev();
+                    }
+                }
+            }
+        }
+    }
 }

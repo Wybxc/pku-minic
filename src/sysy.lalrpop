@@ -24,7 +24,7 @@ FuncDef: FuncDef = {
 
 FuncType: Span<FuncType> = <start:@L> "int" <end:@R> => FuncType::Int.into_span(start, end);
 
-Block: Span<Block> = <start:@L> "{" <items: BlockItem*> "}" <end:@R> => Block { items }.into_span(start, end);
+Block: Span<Block> = <start:@L> "{" <items: BlockItem*> "}" <end:@R> => Block { items: items.into() }.into_span(start, end);
 
 BlockItem: BlockItem = {
   <stmt: Stmt> => BlockItem::Stmt { <> },
@@ -41,7 +41,7 @@ BType: Span<BType> = <start:@L> "int" <end:@R> => BType::Int.into_span(start, en
 ConstDecl: Span<ConstDecl> = {
   <start:@L> "const" <ty: BType> <mut defs: (<ConstDef> ",")*> <def: ConstDef> ";" <end:@R> => {
     defs.push(def);
-    ConstDecl { ty, defs }.into_span(start, end)
+    ConstDecl { ty, defs: defs.into() }.into_span(start, end)
   },
 }
 
@@ -54,7 +54,7 @@ ConstExpr: ConstExpr = <expr: Expr> => ConstExpr { <> };
 VarDecl: Span<VarDecl> = {
   <start:@L> <ty: BType> <mut defs: (<VarDef> ",")*> <def: VarDef> ";" <end:@R> => {
     defs.push(def);
-    VarDecl { ty, defs }.into_span(start, end)
+    VarDecl { ty, defs: defs.into() }.into_span(start, end)
   },
 }
 

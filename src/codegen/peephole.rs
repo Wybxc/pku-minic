@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::riscv::{make_reg_set, RegSet};
+
 use super::imm::i12;
 use super::riscv::{Block, Inst, RegId};
 
@@ -153,7 +155,10 @@ impl BlockBuilder {
 /// Do peephole optimizations on a block.
 pub fn optimize(block: &mut Block, opt_level: u8) {
     if opt_level >= 1 {
-        reduce_unused_values(block);
+        const LIVE: RegSet = RegSet::from_bitset(make_reg_set!(
+            RA, SP, GP, TP, A0, S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11
+        ));
+        reduce_unused_values(block, LIVE);
     }
 }
 
@@ -164,44 +169,40 @@ pub fn optimize(block: &mut Block, opt_level: u8) {
 /// ```text
 /// mv a4, a1
 /// mv a5, a2
-/// sub a4, a1, a2
+/// sub a0, a1, a2
+/// ret
 /// ```
 ///
 /// optimizes to
 ///
 /// ```text
-/// mv a5, a2
-/// sub a4, a1, a2
+/// sub a0, a1, a2
+/// ret
 /// ```
-fn reduce_unused_values(block: &mut Block) {
-    if let Some(front) = block.front() {
-        let mut cursor = block.cursor(front);
+fn reduce_unused_values(block: &mut Block, mut live: RegSet) -> bool {
+    let mut dirty = false;
+    if let Some(back) = block.back() {
+        let mut cursor = block.cursor(back);
         while !cursor.is_null() {
             let inst = cursor.inst().unwrap();
-            let mut delete = false; // whether to delete the instruction
-
             if let Some(dest) = inst.dest() {
-                log::debug!("RUV: checking {}", inst);
-                for (_, inst) in cursor.followings() {
-                    if inst.source().into_iter().flatten().any(|src| src == dest) {
-                        // the value is used before re-assigned, so we cannot delete it
-                        log::debug!("RUV: {} is used in {}, abort", dest, inst);
-                        delete = false;
-                        break;
-                    }
-                    if inst.dest() == Some(dest) {
-                        // the value is re-assigned, so we can delete it
-                        log::debug!("RUV: {} is re-assigned in {}, delete", dest, inst);
-                        delete = true;
-                        break;
-                    }
+                if !live.contains(dest) {
+                    // The value is not used later.
+                    log::debug!("RUV: remove unused value in {}", dest);
+                    cursor.remove_and_prev();
+                    dirty = true;
+                    continue;
+                } else {
+                    // The value is used later, but assigns killed it
+                    live.remove(dest);
                 }
             }
-            if delete {
-                cursor.remove_and_next();
-            } else {
-                cursor.next();
+            for rs in inst.source().into_iter().flatten() {
+                // The value is used here, make it live.
+                live.insert(rs);
             }
+            cursor.prev();
         }
     }
+    dirty
 }
