@@ -253,11 +253,16 @@ impl Spanned for ConstExpr {
 /// Statement
 ///
 /// ```text
-/// Stmt ::= LVal "=" Exp ";" | "return" Exp ";";
+/// Stmt ::= LVal "=" Exp ";"
+///        | [Exp] ";"
+///        | Block
+///        | "return" Exp ";";
 /// ```
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Assign { ident: Span<String>, expr: Expr },
+    Expr { expr: Option<Expr> },
+    Block { block: Span<Block> },
     Return { expr: Expr },
 }
 

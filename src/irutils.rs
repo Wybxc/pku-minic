@@ -80,8 +80,7 @@ pub fn ident_inst(inst: Value, dfg: &DataFlowGraph) -> String {
             if let Some(name) = map.get(&inst) {
                 return name.clone();
             }
-            let name = format!("%{}", NEXT_ID.with(|id| id.get()));
-            NEXT_ID.with(|id| id.set(id.get() + 1));
+            let name = format!("%{}", NEXT_ID.replace(NEXT_ID.get() + 1));
             map.insert(inst, name.clone());
             name
         })

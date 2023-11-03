@@ -213,9 +213,17 @@ pub fn arb_const_expr(_local: LocalEnv) -> impl Strategy<Value = ConstExpr> {
 }
 
 pub fn arb_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
+    let assign = arb_assign_stmt(local.clone());
+    let expr = prop::option::of(arb_expr(local.clone())).prop_map(|expr| Stmt::Expr { expr });
+    let block = arb_block(local.clone()).prop_map(|(block, _)| Stmt::Block {
+        block: block.into_span(0, 0),
+    });
+    let return_ = arb_return_stmt(local.clone());
     prop_oneof![
-        5 => arb_assign_stmt(local.clone()),
-        1 => arb_return_stmt(local),
+        5 => assign,
+        5 => expr,
+        2 => block,
+        2 => return_,
     ]
 }
 
@@ -380,6 +388,22 @@ mod test {
         assert!(stmt_ratio > 0.5, "too few stmts, {stmts} out of {total}",);
     }
 
+    fn count_stmt(block: &Block, criteria: impl Fn(&Stmt) -> bool) -> usize {
+        block
+            .items
+            .iter()
+            .map(|item| match item {
+                BlockItem::Stmt { stmt } => match &stmt.node {
+                    Stmt::Block { block } => count_stmt(&block.node, &criteria),
+                    Stmt::Expr { expr } => criteria(&Stmt::Expr { expr: expr.clone() }) as usize,
+                    Stmt::Assign { .. } => criteria(&stmt.node) as usize,
+                    Stmt::Return { .. } => criteria(&stmt.node) as usize,
+                },
+                _ => 0,
+            })
+            .sum()
+    }
+
     #[test]
     fn test_return_coverage() {
         const N: usize = 10000;
@@ -391,17 +415,9 @@ mod test {
         let mut multiple_returns = 0;
 
         for (i, ast) in samples.enumerate() {
-            let returns = ast
-                .func_def
-                .block
-                .node
-                .items
-                .iter()
-                .filter(|item| match item {
-                    BlockItem::Stmt { stmt } => matches!(stmt.node, Stmt::Return { .. }),
-                    _ => false,
-                })
-                .count();
+            let returns = count_stmt(&ast.func_def.block.node, |stmt| {
+                matches!(stmt, Stmt::Return { .. })
+            });
             if returns > 0 {
                 have_returns += 1;
             }

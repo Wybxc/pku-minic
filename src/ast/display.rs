@@ -118,6 +118,16 @@ impl Display for Stmt {
             Stmt::Assign { ident, expr } => {
                 writeln!(f, "{} = {};", ident, expr)
             }
+            Stmt::Expr { expr } => {
+                if let Some(expr) = expr {
+                    writeln!(f, "{};", expr)
+                } else {
+                    writeln!(f, ";")
+                }
+            }
+            Stmt::Block { block } => {
+                writeln!(f, "{}", block)
+            }
             Stmt::Return { expr } => {
                 writeln!(f, "return {};", expr)
             }
