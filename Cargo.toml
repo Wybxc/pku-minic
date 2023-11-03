@@ -12,14 +12,13 @@ im = "15.1.0"
 key-node-list = "0.0.5"
 koopa = "0.0.7"
 lalrpop-util = { version = "0.20.0", features = ["lexer"] }
-log = "0.4.20"
 miette = { version = "5.10.0", features = ["fancy"] }
 owo-colors = { version = "3.5.0", features = ["supports-colors"] }
-pretty_env_logger = "0.5.0"
 regex = "1.9.5"
 slotmap = "1.0.6"
 thiserror = "1.0.49"
 proptest = { version = "1.3.1", optional = true }
+nolog = "1.0.19"
 
 [build-dependencies]
 lalrpop = "0.20.0"
@@ -31,6 +30,7 @@ proptest = "1.3.1"
 default = []
 proptest = ["dep:proptest"]
 arb-coverage = []
+trace = ["nolog/trace", "nolog/location_hide"]
 
 [profile.profiling]
 inherits = "release"

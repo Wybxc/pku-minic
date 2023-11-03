@@ -6,7 +6,7 @@ use lalrpop_util::lalrpop_mod;
 pub mod ast;
 pub mod codegen;
 pub mod irgen;
-pub mod irutils;
+pub(crate) mod irutils;
 
 lalrpop_mod!(sysy);
 

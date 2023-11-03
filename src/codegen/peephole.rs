@@ -2,6 +2,9 @@
 
 use std::collections::HashMap;
 
+#[allow(unused_imports)]
+use nolog::*;
+
 use crate::codegen::riscv::{make_reg_set, RegSet};
 
 use super::imm::i12;
@@ -51,28 +54,28 @@ impl BlockBuilder {
             match instr {
                 Inst::Mv(dst, rs) => match self.source(rs) {
                     Some(Source::Reg(src)) => {
-                        log::debug!("PKV: propagating {} from {}", src, rs);
+                        nolog::trace!("PKV " => "propagating {} from {}", src, rs);
                         instr = Inst::Mv(dst, src)
                     }
                     Some(Source::Imm(imm)) => {
-                        log::debug!("PKV: propagating imm {} from {}", imm, rs);
+                        nolog::trace!("PKV " => "propagating imm {} from {}", imm, rs);
                         instr = Inst::Li(dst, imm)
                     }
                     None => {}
                 },
                 Inst::Add(dst, mut rs1, rs2) => {
                     if let Some(Source::Reg(src)) = self.source(rs1) {
-                        log::debug!("PKV: propagating {} from {}", src, rs1);
+                        nolog::trace!("PKV " => "propagating {} from {}", src, rs1);
                         rs1 = src;
                     }
                     match self.source(rs2) {
                         Some(Source::Reg(src)) => {
-                            log::debug!("PKV: propagating {} from {}", src, rs2);
+                            nolog::trace!("PKV " => "propagating {} from {}", src, rs2);
                             instr = Inst::Add(dst, rs1, src)
                         }
                         Some(Source::Imm(imm)) => {
                             if let Ok(imm) = i12::try_from(imm) {
-                                log::debug!("PKV: propagating imm {} from {}", imm, rs2);
+                                nolog::trace!("PKV " => "propagating imm {} from {}", imm, rs2);
                                 instr = Inst::Addi(dst, rs1, imm);
                             } else {
                                 instr = Inst::Add(dst, rs1, rs2);
@@ -83,17 +86,17 @@ impl BlockBuilder {
                 }
                 Inst::Sub(dst, mut rs1, rs2) => {
                     if let Some(Source::Reg(src)) = self.source(rs1) {
-                        log::debug!("PKV: propagating {} from {}", src, rs1);
+                        nolog::trace!("PKV " => "propagating {} from {}", src, rs1);
                         rs1 = src;
                     }
                     match self.source(rs2) {
                         Some(Source::Reg(src)) => {
-                            log::debug!("PKV: propagating {} from {}", src, rs2);
+                            nolog::trace!("PKV " => "propagating {} from {}", src, rs2);
                             instr = Inst::Sub(dst, rs1, src)
                         }
                         Some(Source::Imm(imm)) => {
                             if let Ok(imm) = i12::try_from(-imm) {
-                                log::debug!("PKV: propagating imm {} from {}", -imm.value(), rs2);
+                                nolog::trace!("PKV " => "propagating imm {} from {}", -imm.value(), rs2);
                                 instr = Inst::Addi(dst, rs1, imm);
                             } else {
                                 instr = Inst::Sub(dst, rs1, rs2);
@@ -105,7 +108,7 @@ impl BlockBuilder {
                 _ => {
                     for rs in instr.source_mut().into_iter().flatten() {
                         if let Some(Source::Reg(src)) = self.source(*rs) {
-                            log::debug!("PKV: propagating {} from {}", src, rs);
+                            nolog::trace!("PKV " => "propagating {} from {}", src, rs);
                             *rs = src;
                         }
                     }
@@ -117,7 +120,7 @@ impl BlockBuilder {
         match instr {
             Inst::Li(dst, imm) => {
                 if self.source(dst).unwrap_or(Source::Reg(dst)) == Source::Imm(imm) {
-                    log::debug!("RKV: reusing imm in {}", dst);
+                    nolog::trace!("RKV " => "reusing imm in {}", dst);
                     return;
                 }
                 self.cache.insert(dst, Source::Imm(imm));
@@ -125,7 +128,7 @@ impl BlockBuilder {
             Inst::Mv(dst, src) => {
                 let src = self.source(src).unwrap_or(Source::Reg(src));
                 if self.source(dst).unwrap_or(Source::Reg(dst)) == src {
-                    log::debug!("RKV: reusing {:?} in {}", src, dst);
+                    nolog::trace!("RKV " => "reusing {:?} in {}", src, dst);
                     return;
                 }
                 self.cache.insert(dst, src);
@@ -142,7 +145,7 @@ impl BlockBuilder {
             self.cache.retain(|_, source| *source != Source::Reg(dest));
         }
 
-        log::debug!("BLD: push instr: {}", instr);
+        nolog::trace!(->[0] "BLD " => "push instr: {}", instr);
         self.block.push(instr);
     }
 
@@ -155,6 +158,8 @@ impl BlockBuilder {
 /// Do peephole optimizations on a block.
 pub fn optimize(block: &mut Block, opt_level: u8) {
     if opt_level >= 1 {
+        nolog::info!(->[0,1] "OPT " => "Peephole optimization, pass 1");
+
         const LIVE: RegSet = RegSet::from_bitset(make_reg_set!(
             RA, SP, GP, TP, A0, S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11
         ));
@@ -185,10 +190,11 @@ fn reduce_unused_values(block: &mut Block, mut live: RegSet) -> bool {
         let mut cursor = block.cursor(back);
         while !cursor.is_null() {
             let inst = cursor.inst().unwrap();
+            nolog::trace!(->[0] "RUV " => "analyzing `{}`", inst);
             if let Some(dest) = inst.dest() {
                 if !live.contains(dest) {
                     // The value is not used later.
-                    log::debug!("RUV: remove unused value in {}", dest);
+                    nolog::trace!("RUV " => "remove unused value in {}", dest);
                     cursor.remove_and_prev();
                     dirty = true;
                     continue;

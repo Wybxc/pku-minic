@@ -1,4 +1,10 @@
 //! Utility functions for the IR.
+#![allow(dead_code)]
+
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+};
 
 use koopa::ir::{dfg::DataFlowGraph, entities::ValueData, BasicBlock, Value, ValueKind};
 
@@ -59,21 +65,92 @@ pub fn is_terminator(inst: &ValueData) -> bool {
     )
 }
 
+thread_local! {
+    /// The next unique ID for a value.
+    static NEXT_ID: Cell<i32> = Cell::new(0);
+    /// Name map for values.
+    static NAME_MAP: RefCell<HashMap<Value, String>> = RefCell::new(HashMap::new());
+}
+
 /// Get the name of a value for debug printing.
 pub fn ident_inst(inst: Value, dfg: &DataFlowGraph) -> String {
-    dfg.value(inst)
-        .name()
-        .clone()
-        .unwrap_or_else(|| format!("{:?}", inst))
+    dfg.value(inst).name().clone().unwrap_or_else(|| {
+        NAME_MAP.with(|map| {
+            let mut map = map.borrow_mut();
+            if let Some(name) = map.get(&inst) {
+                return name.clone();
+            }
+            let name = format!("%{}", NEXT_ID.with(|id| id.get()));
+            NEXT_ID.with(|id| id.set(id.get() + 1));
+            map.insert(inst, name.clone());
+            name
+        })
+    })
 }
 
 /// Debug print an instruction.
 pub fn dbg_inst(inst: Value, dfg: &DataFlowGraph) -> String {
     let value = dfg.value(inst);
-    if let Some(name) = value.name().as_deref() {
-        format!("{}: {:?} := {:?}", name, inst, value.kind())
+    let body = match value.kind() {
+        ValueKind::Integer(i) => format!("{}", i.value()),
+        ValueKind::Alloc(_) => format!("alloc {}", value.ty()),
+        ValueKind::Load(v) => format!("load {}", ident_inst(v.src(), dfg)),
+        ValueKind::Store(v) => format!(
+            "store {}, {}",
+            ident_inst(v.value(), dfg),
+            ident_inst(v.dest(), dfg)
+        ),
+        ValueKind::GetPtr(v) => format!(
+            "getptr {}, {}",
+            ident_inst(v.src(), dfg),
+            ident_inst(v.index(), dfg)
+        ),
+        ValueKind::GetElemPtr(v) => format!(
+            "getelemptr {}, {}",
+            ident_inst(v.src(), dfg),
+            ident_inst(v.index(), dfg)
+        ),
+        ValueKind::Binary(v) => {
+            let op = match v.op() {
+                koopa::ir::BinaryOp::NotEq => "!=",
+                koopa::ir::BinaryOp::Eq => "==",
+                koopa::ir::BinaryOp::Gt => ">",
+                koopa::ir::BinaryOp::Lt => "<",
+                koopa::ir::BinaryOp::Ge => ">=",
+                koopa::ir::BinaryOp::Le => "<=",
+                koopa::ir::BinaryOp::Add => "+",
+                koopa::ir::BinaryOp::Sub => "-",
+                koopa::ir::BinaryOp::Mul => "*",
+                koopa::ir::BinaryOp::Div => "/",
+                koopa::ir::BinaryOp::Mod => "%",
+                koopa::ir::BinaryOp::And => "&",
+                koopa::ir::BinaryOp::Or => "|",
+                koopa::ir::BinaryOp::Xor => "^",
+                koopa::ir::BinaryOp::Shl => "<<",
+                koopa::ir::BinaryOp::Shr => ">>",
+                koopa::ir::BinaryOp::Sar => ">>>",
+            };
+            format!(
+                "{} {} {}",
+                ident_inst(v.lhs(), dfg),
+                op,
+                ident_inst(v.rhs(), dfg)
+            )
+        }
+        ValueKind::Return(v) => {
+            if let Some(value) = v.value() {
+                format!("return {}", ident_inst(value, dfg))
+            } else {
+                "return".to_string()
+            }
+        }
+        _ => todo!(),
+    };
+    if value.ty().is_unit() {
+        body
     } else {
-        format!("{:?} := {:?}", inst, value.kind())
+        let name = ident_inst(inst, dfg);
+        format!("{} := {}", name, body)
     }
 }
 
