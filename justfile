@@ -50,7 +50,7 @@ test:
     RUST_BACKTRACE=0 cargo test
 
 test-arbitrary:
-    cargo test --all-features -- --nocapture
+    cargo test --features proptest,arb-coverage -- --nocapture
 
 gen-test-case:
     cargo run --features proptest -- -gen-test-case > hello.c

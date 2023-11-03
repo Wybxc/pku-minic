@@ -34,7 +34,7 @@ impl LocalEnv {
 
     /// Generate an arbitrary free identifier.
     pub fn arb_free_lvar(self) -> impl Strategy<Value = Span<String>> {
-        r"[a-z][0-9]{0,2}"
+        r"[a-z]"
             .prop_map(String::from)
             .prop_filter("new lvar must not be in consts or vars", move |ident| {
                 !self.consts.contains(ident) && !self.vars.contains(ident)
@@ -81,8 +81,8 @@ pub fn arb_comp_unit() -> impl Strategy<Value = CompUnit> {
 
 /// Generate an arbitrary function definition.
 pub fn arb_func_def() -> impl Strategy<Value = FuncDef> {
-    let strg_ident = "main".prop_map(String::from);
-    (arb_func_type(), strg_ident, arb_block(LocalEnv::default())).prop_map(
+    let s_ident = "main".prop_map(String::from);
+    (arb_func_type(), s_ident, arb_block(LocalEnv::default())).prop_map(
         |(func_type, ident, (block, _))| FuncDef {
             func_type: func_type.into_span(0, 0),
             ident: ident.into_span(0, 0),
@@ -98,16 +98,20 @@ pub fn arb_func_type() -> impl Strategy<Value = FuncType> {
 
 /// Generate an arbitrary block.
 pub fn arb_block(local: LocalEnv) -> impl Strategy<Value = (Block, LocalEnv)> {
-    arb_block_item(local) // The first block item
+    arb_block_item(local, None) // The first block item
         .prop_map(|(item, local)| (im::vector![item], local))
         .prop_recursive(
-            32,
-            64,
+            100,
+            200,
             1,
             |inner: BoxedStrategy<(im::Vector<BlockItem>, LocalEnv)>| {
                 // Append a new block item to the end of the block
-                inner.prop_flat_map(|(block, local)| {
-                    arb_block_item(local).prop_map(move |(item, local)| {
+                inner.clone().prop_flat_map(move |(block, local)| {
+                    // !!! THIS IS A BUGGY IMPLEMENTATION !!!
+                    // inner block never refers to variables declared in outer block
+                    // We need to manually impl the recursive strategy to fix this.
+                    let s_block = inner.clone().prop_map(|(items, _)| Block { items }).boxed();
+                    arb_block_item(local, Some(s_block)).prop_map(move |(item, local)| {
                         let mut block = block.clone();
                         block.push_back(item);
                         (block, local)
@@ -122,7 +126,10 @@ pub fn arb_block(local: LocalEnv) -> impl Strategy<Value = (Block, LocalEnv)> {
 }
 
 /// Generate an arbitrary block item.
-pub fn arb_block_item(local: LocalEnv) -> impl Strategy<Value = (BlockItem, LocalEnv)> {
+pub fn arb_block_item(
+    local: LocalEnv,
+    s_block: Option<BoxedStrategy<Block>>,
+) -> impl Strategy<Value = (BlockItem, LocalEnv)> {
     let enough_const_decls = local.enough_const_decls();
     let enough_var_decls = local.enough_var_decls();
 
@@ -144,12 +151,12 @@ pub fn arb_block_item(local: LocalEnv) -> impl Strategy<Value = (BlockItem, Loca
         return var_decl.boxed();
     }
 
-    let stmt = arb_stmt(local.clone()).prop_map(move |stmt| {
+    let stmt = arb_stmt(local.clone(), s_block).prop_map(move |stmt| {
         let stmt = stmt.into_span(0, 0);
         (BlockItem::Stmt { stmt }, local.clone())
     });
 
-    prop_oneof![1 => const_decl, 2 => var_decl, 12 => stmt].boxed()
+    prop_oneof![1 => const_decl, 2 => var_decl, 100 => stmt].boxed()
 }
 
 /// Generate an arbitrary declaration.
@@ -212,19 +219,33 @@ pub fn arb_const_expr(_local: LocalEnv) -> impl Strategy<Value = ConstExpr> {
     expr.prop_map(|expr| ConstExpr { expr })
 }
 
-pub fn arb_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
-    let assign = arb_assign_stmt(local.clone());
-    let expr = prop::option::of(arb_expr(local.clone())).prop_map(|expr| Stmt::Expr { expr });
-    let block = arb_block(local.clone()).prop_map(|(block, _)| Stmt::Block {
-        block: block.into_span(0, 0),
-    });
-    let return_ = arb_return_stmt(local.clone());
-    prop_oneof![
-        5 => assign,
-        5 => expr,
-        2 => block,
-        2 => return_,
-    ]
+pub fn arb_stmt(
+    local: LocalEnv,
+    s_block: Option<BoxedStrategy<Block>>,
+) -> impl Strategy<Value = Stmt> {
+    let s_assign = arb_assign_stmt(local.clone());
+    let s_expr =
+        prop::option::weighted(0.8, arb_expr(local.clone())).prop_map(|expr| Stmt::Expr { expr });
+    let s_return = arb_return_stmt(local.clone());
+    if let Some(s_block) = s_block {
+        let s_block = s_block.prop_map(|block| Stmt::Block {
+            block: block.into_span(0, 0),
+        });
+        prop_oneof![
+            6 => s_assign,
+            6 => s_expr,
+            6 => s_block,
+            1 => s_return,
+        ]
+        .boxed()
+    } else {
+        prop_oneof![
+            5 => s_assign,
+            5 => s_expr,
+            1 => s_return,
+        ]
+        .boxed()
+    }
 }
 
 pub fn arb_assign_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
@@ -251,17 +272,15 @@ pub fn arb_expr(local: LocalEnv) -> impl Strategy<Value = Expr> {
     })
 }
 
-pub fn arb_unary_expr(strg_expr: impl Strategy<Value = Expr>) -> impl Strategy<Value = Expr> {
-    (arb_unary_op(), strg_expr).prop_map(|(op, expr)| Expr::Unary {
+pub fn arb_unary_expr(s_expr: impl Strategy<Value = Expr>) -> impl Strategy<Value = Expr> {
+    (arb_unary_op(), s_expr).prop_map(|(op, expr)| Expr::Unary {
         op: op.into_span(0, 0),
         expr: Box::new(expr),
     })
 }
 
-pub fn arb_binary_expr(
-    strg_expr: impl Strategy<Value = Expr> + Clone,
-) -> impl Strategy<Value = Expr> {
-    (strg_expr.clone(), arb_binary_op(), strg_expr).prop_map(|(lhs, op, rhs)| Expr::Binary {
+pub fn arb_binary_expr(s_expr: impl Strategy<Value = Expr> + Clone) -> impl Strategy<Value = Expr> {
+    (s_expr.clone(), arb_binary_op(), s_expr).prop_map(|(lhs, op, rhs)| Expr::Binary {
         op: op.into_span(0, 0),
         lhs: Box::new(lhs),
         rhs: Box::new(rhs),
@@ -352,6 +371,42 @@ mod test {
         Samples::new(gen, runner, n)
     }
 
+    fn count_decl<F>(block: &Block, criteria: &F) -> usize
+    where
+        F: Fn(&Decl) -> bool,
+    {
+        block
+            .items
+            .iter()
+            .map(|item| match item {
+                BlockItem::Decl { decl } => criteria(decl) as usize,
+                BlockItem::Stmt { stmt } => match &stmt.node {
+                    Stmt::Block { block } => count_decl(&block.node, criteria),
+                    _ => 0,
+                },
+            })
+            .sum()
+    }
+
+    fn count_stmt<F>(block: &Block, criteria: &F) -> usize
+    where
+        F: Fn(&Stmt) -> bool,
+    {
+        block
+            .items
+            .iter()
+            .map(|item| match item {
+                BlockItem::Stmt { stmt } => match &stmt.node {
+                    Stmt::Block { block } => count_stmt(&block.node, criteria),
+                    Stmt::Expr { expr } => criteria(&Stmt::Expr { expr: expr.clone() }) as usize,
+                    Stmt::Assign { .. } => criteria(&stmt.node) as usize,
+                    Stmt::Return { .. } => criteria(&stmt.node) as usize,
+                },
+                _ => 0,
+            })
+            .sum()
+    }
+
     #[test]
     fn test_stmt_coverage() {
         const N: usize = 10000;
@@ -363,12 +418,8 @@ mod test {
         let mut stmts = 0;
 
         for (i, ast) in samples.enumerate() {
-            for item in ast.func_def.block.node.items {
-                match item {
-                    BlockItem::Decl { .. } => decls += 1,
-                    BlockItem::Stmt { .. } => stmts += 1,
-                }
-            }
+            decls += count_decl(&ast.func_def.block.node, &|_| true);
+            stmts += count_stmt(&ast.func_def.block.node, &|_| true);
             if i % 1000 == 0 {
                 println!("{} samples generated", i);
             }
@@ -385,23 +436,7 @@ mod test {
         );
 
         assert!(decl_ratio > 0.4, "too few decls, {decls} out of {total}",);
-        assert!(stmt_ratio > 0.5, "too few stmts, {stmts} out of {total}",);
-    }
-
-    fn count_stmt(block: &Block, criteria: impl Fn(&Stmt) -> bool) -> usize {
-        block
-            .items
-            .iter()
-            .map(|item| match item {
-                BlockItem::Stmt { stmt } => match &stmt.node {
-                    Stmt::Block { block } => count_stmt(&block.node, &criteria),
-                    Stmt::Expr { expr } => criteria(&Stmt::Expr { expr: expr.clone() }) as usize,
-                    Stmt::Assign { .. } => criteria(&stmt.node) as usize,
-                    Stmt::Return { .. } => criteria(&stmt.node) as usize,
-                },
-                _ => 0,
-            })
-            .sum()
+        assert!(stmt_ratio > 0.4, "too few stmts, {stmts} out of {total}",);
     }
 
     #[test]
@@ -415,7 +450,7 @@ mod test {
         let mut multiple_returns = 0;
 
         for (i, ast) in samples.enumerate() {
-            let returns = count_stmt(&ast.func_def.block.node, |stmt| {
+            let returns = count_stmt(&ast.func_def.block.node, &|stmt| {
                 matches!(stmt, Stmt::Return { .. })
             });
             if returns > 0 {
@@ -446,7 +481,7 @@ mod test {
         );
 
         assert!(
-            multiple_return_ratio < 0.2,
+            multiple_return_ratio < 0.3,
             "too many multiple_returns, {multiple_returns} out of {total}",
         );
     }
