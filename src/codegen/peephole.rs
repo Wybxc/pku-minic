@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+#[allow(unused_imports)]
 use nolog::*;
 
 use crate::codegen::riscv::{make_reg_set, RegSet};
@@ -189,6 +190,7 @@ fn reduce_unused_values(block: &mut Block, mut live: RegSet) -> bool {
         let mut cursor = block.cursor(back);
         while !cursor.is_null() {
             let inst = cursor.inst().unwrap();
+            nolog::trace!(->[0] "RUV " => "analyzing `{}`", inst);
             if let Some(dest) = inst.dest() {
                 if !live.contains(dest) {
                     // The value is not used later.

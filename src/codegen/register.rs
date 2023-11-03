@@ -121,7 +121,7 @@ impl RegAlloc {
             let insts = node.insts().keys().collect::<Vec<_>>();
             let mut scanned = HashSet::new();
             for &inst in insts.into_iter().rev() {
-                nolog::trace!(->[0] "VLA " => "analyzing {}", irutils::dbg_inst(inst, func.dfg()));
+                nolog::trace!(->[0] "VLA " => "analyzing `{}`", irutils::dbg_inst(inst, func.dfg()));
                 let mut ops = operand_vars(inst, func.dfg());
                 for op in ops.iter_mut() {
                     if let Some(val) = op {
@@ -167,7 +167,7 @@ impl RegAlloc {
 
                 // Allocate registers for results.
                 let value = func.dfg().value(inst);
-                nolog::trace!(->[0] "REG " => "allocating for {}", irutils::dbg_inst(inst, func.dfg()));
+                nolog::trace!(->[0] "REG " => "allocating for `{}`", irutils::dbg_inst(inst, func.dfg()));
                 if !value.ty().is_unit() {
                     // Not a unit type, allocate a register.
                     let try_reg = free.iter().next();
