@@ -60,7 +60,9 @@ use std::collections::{HashMap, HashSet};
 
 use koopa::ir::{dfg::DataFlowGraph, FunctionData, Value, ValueKind};
 use miette::Result;
-use owo_colors::OwoColorize;
+
+#[allow(unused_imports)]
+use nolog::*;
 
 use super::riscv::RegId;
 use crate::{
@@ -119,24 +121,19 @@ impl RegAlloc {
             let insts = node.insts().keys().collect::<Vec<_>>();
             let mut scanned = HashSet::new();
             for &inst in insts.into_iter().rev() {
+                nolog::trace!(->[0] "VLA " => "analyzing {}", irutils::dbg_inst(inst, func.dfg()));
                 let mut ops = operand_vars(inst, func.dfg());
                 for op in ops.iter_mut() {
                     if let Some(val) = op {
                         if !scanned.insert(*val) {
                             // The variable has been scanned, it will not die here.
                             *op = None;
+                        } else {
+                            nolog::trace!("VLA " => "live out {}", irutils::ident_inst(*val, func.dfg()));
                         }
                     }
                 }
-                log::debug!(
-                    "VLA: live out [{}] (at {})",
-                    ops.iter()
-                        .filter_map(|&v| v)
-                        .map(|v| irutils::ident_inst(v, func.dfg()))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    irutils::dbg_inst(inst, func.dfg()).bright_black()
-                );
+
                 live_out.insert(inst, ops);
             }
         }
@@ -170,6 +167,7 @@ impl RegAlloc {
 
                 // Allocate registers for results.
                 let value = func.dfg().value(inst);
+                nolog::trace!(->[0] "REG " => "allocating for {}", irutils::dbg_inst(inst, func.dfg()));
                 if !value.ty().is_unit() {
                     // Not a unit type, allocate a register.
                     let try_reg = free.iter().next();
@@ -178,11 +176,9 @@ impl RegAlloc {
                         map.insert(inst, Storage::Reg(reg));
                         free.remove(reg);
 
-                        log::debug!(
-                            "REG: allocate `{}` to `{}` (at {})",
-                            irutils::ident_inst(inst, func.dfg()),
-                            reg,
-                            irutils::dbg_inst(inst, func.dfg()).bright_black()
+                        nolog::trace!(
+                            "REG " => "allocate `{}` to `{reg}`",
+                            irutils::ident_inst(inst, func.dfg())
                         );
                     } else {
                         // No free register, spill a variable.
@@ -195,11 +191,9 @@ impl RegAlloc {
                             })?),
                         );
 
-                        log::debug!(
-                            "REG: spill {} to stack sp+{} (at {})",
-                            irutils::ident_inst(inst, func.dfg()),
-                            sp,
-                            irutils::dbg_inst(inst, func.dfg()).bright_black()
+                        nolog::trace!(
+                            "REG " => "spill {} to stack sp+{sp}",
+                            irutils::ident_inst(inst, func.dfg())
                         );
 
                         sp += 4;

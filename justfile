@@ -8,7 +8,7 @@ test_riscv := replace_regex(test_c, '\.c$', ".s")
 test_llvm := replace_regex(test_c, '\.c$', ".ll")
 test_llvm_riscv := replace_regex(test_c, '\.c$', ".ll.s")
 
-default: koopa riscv
+default: koopa riscv perf
 
 koopa:
     cargo run -- -koopa {{test_c}} -o {{test_koopa}}
@@ -20,6 +20,10 @@ riscv:
 
 perf:
     cargo run -- -perf {{test_c}} -o {{test_riscv}}
+    cat {{test_riscv}}
+
+trace:
+    cargo run --features=trace -- -perf {{test_c}} -o {{test_riscv}}
     cat {{test_riscv}}
 
 llvm args="":

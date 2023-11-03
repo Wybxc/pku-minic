@@ -115,9 +115,6 @@ _Arguments_:
 }
 
 fn main() -> Result<()> {
-    // Setup logger
-    pretty_env_logger::init();
-
     // Parse command line arguments
     let mut args = Args::parse();
 
