@@ -367,11 +367,11 @@ impl ast::Expr {
                 let lhs = lhs.const_eval(symtable)?;
                 let rhs = rhs.const_eval(symtable)?;
                 match op.node {
-                    ast::BinaryOp::Add => lhs + rhs,
-                    ast::BinaryOp::Sub => lhs - rhs,
-                    ast::BinaryOp::Mul => lhs * rhs,
-                    ast::BinaryOp::Div => lhs / rhs,
-                    ast::BinaryOp::Mod => lhs % rhs,
+                    ast::BinaryOp::Add => lhs.saturating_add(rhs),
+                    ast::BinaryOp::Sub => lhs.saturating_sub(rhs),
+                    ast::BinaryOp::Mul => lhs.saturating_mul(rhs),
+                    ast::BinaryOp::Div => lhs.checked_div(rhs).unwrap_or(-1), // Maybe a compile error?
+                    ast::BinaryOp::Mod => lhs.checked_rem(rhs).unwrap_or(-1),
                     ast::BinaryOp::Eq => (lhs == rhs) as i32,
                     ast::BinaryOp::Ne => (lhs != rhs) as i32,
                     ast::BinaryOp::Lt => (lhs < rhs) as i32,
