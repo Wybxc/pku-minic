@@ -20,19 +20,16 @@ pub struct SymbolTable {
 impl SymbolTable {
     /// Create a new symbol table.
     pub fn new() -> Self {
-        let mut chain_map = ChainMap::new();
-        chain_map.push();
+        let chain_map = ChainMap::new();
         Self { chain_map }
     }
 
     /// Push a new scope.
-    #[allow(dead_code)]
     pub fn push(&mut self) {
         self.chain_map.push();
     }
 
     /// Pop a scope.
-    #[allow(dead_code)]
     pub fn pop(&mut self) {
         self.chain_map.pop();
     }

@@ -298,6 +298,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "indenter"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
+
+[[package]]
 name = "indexmap"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -568,6 +574,7 @@ version = "0.1.0"
 dependencies = [
  "clio",
  "im",
+ "indenter",
  "key-node-list",
  "koopa",
  "lalrpop",
@@ -576,8 +583,8 @@ dependencies = [
  "nolog",
  "owo-colors",
  "proptest",
+ "rand",
  "regex",
- "slotmap",
  "thiserror",
 ]
 
@@ -809,15 +816,6 @@ checksum = "16d69225bde7a69b235da73377861095455d298f2b970996eec25ddbb42b3d1e"
 dependencies = [
  "bitmaps",
  "typenum",
-]
-
-[[package]]
-name = "slotmap"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1e08e261d0e8f5c43123b7adf3e4ca1690d655377ac93a03b2c9d3e98de1342"
-dependencies = [
- "version_check",
 ]
 
 [[package]]

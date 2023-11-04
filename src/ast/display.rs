@@ -1,4 +1,5 @@
-use std::fmt::{Debug, Display};
+use indenter::indented;
+use std::fmt::{Debug, Display, Write};
 
 use super::*;
 
@@ -26,7 +27,8 @@ impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{{")?;
         for item in &self.items {
-            write!(f, "    {}", item)?;
+            let mut f = indented(f).with_str("    ");
+            write!(f, "{}", item)?;
         }
         write!(f, "}}")
     }
@@ -117,6 +119,16 @@ impl Display for Stmt {
         match self {
             Stmt::Assign { ident, expr } => {
                 writeln!(f, "{} = {};", ident, expr)
+            }
+            Stmt::Expr { expr } => {
+                if let Some(expr) = expr {
+                    writeln!(f, "{};", expr)
+                } else {
+                    writeln!(f, ";")
+                }
+            }
+            Stmt::Block { block } => {
+                writeln!(f, "{}", block)
             }
             Stmt::Return { expr } => {
                 writeln!(f, "return {};", expr)

@@ -1,7 +1,7 @@
 export RUST_BACKTRACE := "1"
 
 test_c := "hello.c"
-level := "lv4"
+level := "lv5"
 
 test_koopa := replace_regex(test_c, '\.c$', ".kp")
 test_riscv := replace_regex(test_c, '\.c$', ".s")
@@ -27,11 +27,12 @@ trace:
     cat {{test_riscv}}
 
 llvm args="":
-    clang -S -emit-llvm {{test_c}} -o {{test_llvm}}
-    llc {{test_llvm}} -o {{test_llvm_riscv}} -march=riscv32 -mattr=+m,+relax {{args}}
+    clang -S -emit-llvm {{test_c}} -O0 -Xclang -disable-O0-optnone --target=riscv32-unknown-unknown
+    opt -S -mem2reg {{test_llvm}} -o {{test_llvm}}
+    llc {{test_llvm}} -o {{test_llvm_riscv}} -O0 --frame-pointer=none -march=riscv32 -mattr=+m,+relax {{args}}
     cat {{test_llvm_riscv}}
 
-autotest: autotest-koopa autotest-riscv
+autotest: autotest-koopa autotest-riscv autotest-perf
 
 autotest-koopa:
     autotest -koopa -s {{level}} .
@@ -50,7 +51,7 @@ test:
     RUST_BACKTRACE=0 cargo test
 
 test-arbitrary:
-    cargo test --all-features -- --nocapture
+    cargo test --features proptest,arb-coverage -- --nocapture
 
 gen-test-case:
     cargo run --features proptest -- -gen-test-case > hello.c
