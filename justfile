@@ -10,6 +10,9 @@ test_llvm_riscv := replace_regex(test_c, '\.c$', ".ll.s")
 
 default: koopa riscv perf
 
+dump-ast:
+    cargo run -- -dump-ast {{test_c}}
+
 koopa:
     cargo run -- -koopa {{test_c}} -o {{test_koopa}}
     cat {{test_koopa}}

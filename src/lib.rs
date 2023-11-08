@@ -66,8 +66,8 @@ pub enum MinicParseError {
     Unknown,
 }
 
-/// Compile SysY source code to Koopa IR.
-pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, ProgramMetadata)> {
+/// Parse SysY source code to AST.
+pub fn parse(input: &str) -> Result<ast::CompUnit> {
     let ast = sysy::CompUnitParser::new().parse(input).map_err(|e| {
         use lalrpop_util::ParseError;
 
@@ -93,6 +93,12 @@ pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, Progr
             _ => MinicParseError::Unknown,
         }
     })?;
+    Ok(ast)
+}
+
+/// Compile SysY source code to Koopa IR.
+pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, ProgramMetadata)> {
+    let ast = parse(input)?;
     let ir = ast.build_ir()?;
     Ok(ir)
 }

@@ -231,6 +231,7 @@ impl ast::Stmt {
             ast::Stmt::Block { block } => {
                 block.node.build_ir_in(symtable, layout)?;
             }
+            ast::Stmt::If { .. } => todo!(),
         }
         Ok(())
     }

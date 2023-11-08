@@ -130,6 +130,14 @@ impl Display for Stmt {
             Stmt::Block { block } => {
                 writeln!(f, "{}", block)
             }
+            Stmt::If { cond, then, els } => {
+                write!(f, "if ({}) ", cond)?;
+                write!(f, "{}", then)?;
+                if let Some(els) = els {
+                    write!(f, "else {}", els)?;
+                }
+                Ok(())
+            }
             Stmt::Return { expr } => {
                 writeln!(f, "return {};", expr)
             }

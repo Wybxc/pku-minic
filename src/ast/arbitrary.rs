@@ -555,15 +555,30 @@ mod test {
     where
         F: Fn(&Decl) -> bool,
     {
+        fn count<F>(stmt: &Stmt, criteria: &F) -> usize
+        where
+            F: Fn(&Decl) -> bool,
+        {
+            match stmt {
+                Stmt::Block { block } => count_decl(&block.node, criteria),
+                Stmt::If { then, els, .. } => {
+                    let count_then = count(&then.node, criteria);
+                    let count_els = els
+                        .as_ref()
+                        .map(|els| count(&els.node, criteria))
+                        .unwrap_or(0);
+                    count_then + count_els
+                }
+                _ => 0,
+            }
+        }
+
         block
             .items
             .iter()
             .map(|item| match item {
                 BlockItem::Decl { decl } => criteria(decl) as usize,
-                BlockItem::Stmt { stmt } => match &stmt.node {
-                    Stmt::Block { block } => count_decl(&block.node, criteria),
-                    _ => 0,
-                },
+                BlockItem::Stmt { stmt } => count(&stmt.node, criteria),
             })
             .sum()
     }
@@ -572,17 +587,31 @@ mod test {
     where
         F: Fn(&Stmt) -> bool,
     {
+        fn count<F>(stmt: &Stmt, criteria: &F) -> usize
+        where
+            F: Fn(&Stmt) -> bool,
+        {
+            match stmt {
+                Stmt::Block { block } => count_stmt(&block.node, criteria),
+                Stmt::If { then, els, .. } => {
+                    let count_self = criteria(stmt) as usize;
+                    let count_then = count(&then.node, criteria);
+                    let count_els = els
+                        .as_ref()
+                        .map(|els| count(&els.node, criteria))
+                        .unwrap_or(0);
+                    count_self + count_then + count_els
+                }
+                _ => criteria(stmt) as usize,
+            }
+        }
+
         block
             .items
             .iter()
             .map(|item| match item {
-                BlockItem::Stmt { stmt } => match &stmt.node {
-                    Stmt::Block { block } => count_stmt(&block.node, criteria),
-                    Stmt::Expr { expr } => criteria(&Stmt::Expr { expr: expr.clone() }) as usize,
-                    Stmt::Assign { .. } => criteria(&stmt.node) as usize,
-                    Stmt::Return { .. } => criteria(&stmt.node) as usize,
-                },
-                _ => 0,
+                BlockItem::Decl { .. } => 0,
+                BlockItem::Stmt { stmt } => count(&stmt.node, criteria),
             })
             .sum()
     }

@@ -10,6 +10,7 @@ struct Args {
 }
 
 enum Mode {
+    DumpAst,
     Koopa,
     Riscv,
     Perf,
@@ -21,6 +22,7 @@ impl Args {
 
 _Arguments_:
     *mode*        Mode of the compiler, can be one of:
+                    *-dump-ast*   Dump AST
                     *-koopa*      Generate koopa IR
                     *-riscv*      Generate riscv assembly
                     *-perf*       Generate riscv assembly with optimizations, implies *-O3*
@@ -43,6 +45,7 @@ _Arguments_:
         // Parse mode
         let mode = args.next().ok_or("missing argument `mode`")?;
         let mode = match mode.to_str() {
+            Some("-dump-ast") => Mode::DumpAst,
             Some("-koopa") => Mode::Koopa,
             Some("-riscv") => Mode::Riscv,
             Some("-perf") => {
@@ -125,25 +128,47 @@ fn main() -> Result<()> {
     // Optimization level
     let opt_level = args.opt_level;
 
-    // Compile
-    let (program, metadata) = match pku_minic::compile(&input, opt_level) {
-        Ok(program) => program,
-        Err(diagnostic) => Err(diagnostic.with_source_code(input))?,
-    };
-
     // Generate output
     match args.mode {
+        Mode::DumpAst => {
+            // Parse
+            let ast = pku_minic::parse(&input).with_source_code(input)?;
+            // Dump AST
+            writeln!(args.output, "{}", ast).into_diagnostic()?;
+        }
         Mode::Koopa => {
+            // Compile
+            let (program, _) = pku_minic::compile(&input, opt_level).with_source_code(input)?;
+            // Dump IR
             let mut gen = koopa::back::KoopaGenerator::new(args.output);
             gen.generate_on(&program).into_diagnostic()?;
         }
         Mode::Riscv | Mode::Perf => {
-            let program = pku_minic::codegen(program, &metadata, opt_level)?;
+            // Compile
+            let (program, metadata) =
+                pku_minic::compile(&input, opt_level).with_source_code(input.clone())?;
+            // Generate code
+            let program =
+                pku_minic::codegen(program, &metadata, opt_level).with_source_code(input)?;
             write!(args.output, "{}", program).into_diagnostic()?;
         }
     }
 
     Ok(())
+}
+
+trait WithSourceCode {
+    fn with_source_code(self, source_code: impl miette::SourceCode + Send + Sync + 'static)
+        -> Self;
+}
+
+impl<T> WithSourceCode for Result<T> {
+    fn with_source_code(
+        self,
+        source_code: impl miette::SourceCode + Send + Sync + 'static,
+    ) -> Self {
+        self.map_err(|err| err.with_source_code(source_code))
+    }
 }
 
 /// Simple markup for help message.

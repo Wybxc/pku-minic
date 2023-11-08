@@ -253,17 +253,36 @@ impl Spanned for ConstExpr {
 /// Statement
 ///
 /// ```text
-/// Stmt ::= LVal "=" Exp ";"
-///        | [Exp] ";"
-///        | Block
-///        | "return" Exp ";";
+///            Stmt ::= MatchedIfStmt
+///                   | UnmatchedIfStmt
+///   MatchedIfStmt ::= LVal "=" Exp ";"
+///                   | [Exp] ";"
+///                   | Block
+///                   | "if" "(" Exp ")" MatchedIfStmt "else" MatchedIfStmt
+///                   | "return" Exp ";"
+/// UnmatchedIfStmt ::= "if" "(" Exp ")" Stmt
+///                   | "if" "(" Exp ")" MatchedIfStmt "else" UnmatchedIfStmt
 /// ```
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Assign { ident: Span<String>, expr: Expr },
-    Expr { expr: Option<Expr> },
-    Block { block: Span<Block> },
-    Return { expr: Expr },
+    Assign {
+        ident: Span<String>,
+        expr: Expr,
+    },
+    Expr {
+        expr: Option<Expr>,
+    },
+    Block {
+        block: Span<Block>,
+    },
+    If {
+        cond: Expr,
+        then: Box<Span<Stmt>>,
+        els: Option<Box<Span<Stmt>>>,
+    },
+    Return {
+        expr: Expr,
+    },
 }
 
 impl NonSpanned for Stmt {}

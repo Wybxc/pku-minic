@@ -68,10 +68,33 @@ InitVal: InitVal = {
 };
 
 Stmt: Span<Stmt> = {
+  <MatchedIfStmt> => <>,
+  <UnmatchedIfStmt> => <>,
+};
+
+MatchedIfStmt: Span<Stmt> = {
   <start:@L> <ident: Ident> "=" <expr: Expr> ";" <end:@R> => Stmt::Assign { ident, expr }.into_span(start, end),
   <start:@L> <expr: Expr?> ";" <end:@R> => Stmt::Expr { expr }.into_span(start, end),
   <start:@L> <block: Block> <end:@R> => Stmt::Block { block }.into_span(start, end),
+  <start:@L> "if" "(" <cond: Expr> ")" <then: MatchedIfStmt> "else" <els: MatchedIfStmt> <end:@R> => Stmt::If {
+    cond,
+    then: Box::new(then),
+    els: Some(Box::new(els)),
+  }.into_span(start, end),
   <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end)
+};
+
+UnmatchedIfStmt: Span<Stmt> = {
+  <start:@L> "if" "(" <cond: Expr> ")" <then: Stmt> <end:@R> => Stmt::If {
+    cond,
+    then: Box::new(then),
+    els: None,
+  }.into_span(start, end),
+  <start:@L> "if" "(" <cond: Expr> ")" <then: MatchedIfStmt> "else" <els: UnmatchedIfStmt> <end:@R> => Stmt::If {
+    cond,
+    then: Box::new(then),
+    els: Some(Box::new(els)),
+  }.into_span(start, end),
 };
 
 Expr: Expr = <expr: LOrExpr> => <>;
