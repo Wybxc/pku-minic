@@ -57,8 +57,10 @@ impl ast::FuncDef {
         metadata.functions.insert(func, func_metadata);
 
         let mut layout = LayoutBuilder::new(program.func_mut(func), self.func_type.node);
+        self.block.node.build_ir_in(symtable, &mut layout)?;
+        layout.terminate_current_bb();
 
-        self.block.node.build_ir_in(symtable, &mut layout)
+        Ok(())
     }
 }
 
@@ -83,6 +85,9 @@ impl ast::Block {
     pub fn build_ir_in(self, symtable: &mut SymbolTable, layout: &mut LayoutBuilder) -> Result<()> {
         symtable.push();
         for item in self.items {
+            if layout.terminated() {
+                break;
+            }
             item.build_ir_in(symtable, layout)?;
         }
         symtable.pop();
@@ -217,11 +222,9 @@ impl ast::Stmt {
                 let expr = expr.build_ir_in(symtable, layout)?;
                 let dfg = layout.dfg_mut();
                 let ret = dfg.new_value().ret(Some(expr));
-
                 layout.push_inst(ret);
-
-                // End the current basic block.
-                layout.new_bb(None);
+                // SAFETY: the current basic block is terminated by `ret` instruction.
+                unsafe { layout.mark_terminated() };
             }
             ast::Stmt::Expr { expr } => {
                 if let Some(expr) = expr {
@@ -231,7 +234,42 @@ impl ast::Stmt {
             ast::Stmt::Block { block } => {
                 block.node.build_ir_in(symtable, layout)?;
             }
-            ast::Stmt::If { .. } => todo!(),
+            ast::Stmt::If { cond, then, els } => {
+                let cond = cond.build_ir_in(symtable, layout)?;
+
+                let then_bb = layout.new_bb(None);
+                let els_bb = layout.new_bb(None);
+                let next_bb = if els.is_some() {
+                    layout.new_bb(None)
+                } else {
+                    els_bb
+                };
+
+                layout.with_bb(then_bb, |layout| {
+                    then.node.build_ir_in(symtable, layout)?;
+                    let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
+                    layout.push_inst(jump_to_next);
+                    Ok(())
+                })?;
+
+                if let Some(els) = els {
+                    layout.with_bb(els_bb, |layout| {
+                        els.node.build_ir_in(symtable, layout)?;
+                        let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
+                        layout.push_inst(jump_to_next);
+                        Ok(())
+                    })?;
+                }
+
+                let branch = layout.dfg_mut().new_value().branch(cond, then_bb, els_bb);
+                layout.push_inst(branch);
+                unsafe {
+                    // SAFETY: the current basic block is terminated by `br` instruction.
+                    layout.mark_terminated();
+                    // SAFETY: the next basic block is empty.
+                    layout.switch_bb(next_bb);
+                }
+            }
         }
         Ok(())
     }
@@ -336,7 +374,7 @@ impl ast::Expr {
                     .get_var(&name.node)
                     .ok_or(CompileError::VariableNotFound {
                         span: name.span().into(),
-                    })?; // todo: error handling
+                    })?;
                 match var {
                     Symbol::Const(num) => {
                         let dfg = layout.dfg_mut();
