@@ -13,7 +13,6 @@ pub struct LayoutBuilder<'a> {
     func: &'a mut FunctionData,
     current: BasicBlock,
     rtype: ast::FuncType,
-    terminated: bool,
 }
 
 impl<'a> LayoutBuilder<'a> {
@@ -28,7 +27,6 @@ impl<'a> LayoutBuilder<'a> {
             func,
             current: entry,
             rtype,
-            terminated: false,
         }
     }
 
@@ -52,11 +50,6 @@ impl<'a> LayoutBuilder<'a> {
         self.bb_mut(self.current)
     }
 
-    /// Whether the current basic block is terminated.
-    pub fn terminated(&self) -> bool {
-        self.terminated
-    }
-
     /// Dataflow graph.
     pub fn dfg(&self) -> &DataFlowGraph {
         self.func.dfg()
@@ -70,11 +63,7 @@ impl<'a> LayoutBuilder<'a> {
     /// Push an instruction to the current basic block.
     ///
     /// Return the instruction value.
-    ///
-    /// # Panics
-    /// If the current basic block is terminated.
     pub fn push_inst(&mut self, inst: Value) -> Value {
-        assert!(!self.terminated, "current basic block is terminated");
         self.current_bb_mut()
             .insts_mut()
             .push_key_back(inst)
@@ -85,11 +74,7 @@ impl<'a> LayoutBuilder<'a> {
     /// Push instructions to the current basic block.
     ///
     /// Return the last instruction value.
-    ///
-    /// # Panics
-    /// If the current basic block is terminated.
     pub fn push_insts(&mut self, insts: impl IntoIterator<Item = Value>) -> Value {
-        assert!(!self.terminated, "current basic block is terminated");
         let inst_list = self.current_bb_mut().insts_mut();
         for inst in insts.into_iter() {
             inst_list
@@ -99,22 +84,10 @@ impl<'a> LayoutBuilder<'a> {
         inst_list.back_key().copied().unwrap()
     }
 
-    /// Mark the current basic block as terminated.
-    ///
-    /// # Safety
-    /// The current basic block must be correctly terminated.
-    pub unsafe fn mark_terminated(&mut self) {
-        self.terminated = true;
-    }
-
     /// Terminate the current basic block.
     ///
     /// If the current basic block is not terminated, insert a default terminator.
     pub fn terminate_current_bb(&mut self) {
-        if self.terminated {
-            return;
-        }
-
         let insts = self.current_bb_mut().insts_mut();
         let last_inst = insts.back_key().copied();
         if last_inst.is_none()
@@ -125,7 +98,6 @@ impl<'a> LayoutBuilder<'a> {
             let inst = dfg.new_value().ret(Some(value));
             self.push_inst(inst);
         }
-        self.terminated = true;
     }
 
     /// Create a new empty basic block.
@@ -154,14 +126,9 @@ impl<'a> LayoutBuilder<'a> {
 
     /// Switch current basic block.
     ///
-    /// # Panics
-    /// If the current basic block is not terminated.
-    ///
     /// # Safety
-    /// The new basic block must not be terminated.
-    pub unsafe fn switch_bb(&mut self, bb: BasicBlock) {
-        assert!(self.terminated, "current basic block is not terminated");
+    /// The new basic block must not be terminated, and current basic block must be terminated.
+    pub fn switch_bb(&mut self, bb: BasicBlock) {
         self.current = bb;
-        self.terminated = false;
     }
 }

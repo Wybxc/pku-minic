@@ -170,6 +170,7 @@ impl Strategy for BlockStrategy {
                 2, // var decl
                 5, // stmt
                 2, // block
+                2, // if
             ];
             if insts + 1 >= self.max_insts {
                 weights[3] = 0;
@@ -219,6 +220,20 @@ impl Strategy for BlockStrategy {
                     insts += block.items_len();
                     items.push(BlockItemValueTree::Block(Box::new(block)));
                 }
+                4 => {
+                    // if
+                    let cond = arb_expr(local.clone()).new_tree(runner)?;
+                    let then = BlockStrategy::new(local.clone(), (self.max_insts + 1) / 2)
+                        .new_tree(runner)?;
+                    let els = BlockStrategy::new(local.clone(), (self.max_insts + 1) / 2)
+                        .new_tree(runner)?;
+                    insts += then.items_len() + els.items_len();
+                    items.push(BlockItemValueTree::If {
+                        cond: Box::new(cond),
+                        then: Box::new(then),
+                        els: Some(Box::new(els)),
+                    });
+                }
                 _ => unreachable!(),
             }
         }
@@ -255,6 +270,9 @@ impl BlockValueTree {
             .map(|item| match item {
                 BlockItemValueTree::Item(_) => 1,
                 BlockItemValueTree::Block(tree) => tree.items_len(),
+                BlockItemValueTree::If { then, els, .. } => {
+                    then.items_len() + els.as_ref().map(|els| els.items_len()).unwrap_or(0)
+                }
             })
             .sum()
     }
@@ -313,6 +331,11 @@ impl ValueTree for BlockValueTree {
 enum BlockItemValueTree {
     Item(Box<dyn ValueTree<Value = BlockItem>>),
     Block(Box<BlockValueTree>),
+    If {
+        cond: Box<dyn ValueTree<Value = Expr>>,
+        then: Box<BlockValueTree>,
+        els: Option<Box<BlockValueTree>>,
+    },
 }
 
 impl ValueTree for BlockItemValueTree {
@@ -324,6 +347,26 @@ impl ValueTree for BlockItemValueTree {
             BlockItemValueTree::Block(tree) => BlockItem::Stmt {
                 stmt: Stmt::Block {
                     block: tree.current().into_span(0, 0),
+                }
+                .into_span(0, 0),
+            },
+            BlockItemValueTree::If { cond, then, els } => BlockItem::Stmt {
+                stmt: Stmt::If {
+                    cond: cond.current(),
+                    then: Box::new(
+                        Stmt::Block {
+                            block: then.current().into_span(0, 0),
+                        }
+                        .into_span(0, 0),
+                    ),
+                    els: els.as_ref().map(|els| {
+                        Box::new(
+                            Stmt::Block {
+                                block: els.current().into_span(0, 0),
+                            }
+                            .into_span(0, 0),
+                        )
+                    }),
                 }
                 .into_span(0, 0),
             },
@@ -341,6 +384,19 @@ impl ValueTree for BlockItemValueTree {
         match self {
             BlockItemValueTree::Item(tree) => tree.simplify(),
             BlockItemValueTree::Block(tree) => tree.simplify(),
+            BlockItemValueTree::If { cond, then, els } => {
+                if cond.simplify() {
+                    return true;
+                }
+                if then.simplify() {
+                    return true;
+                }
+                if let Some(els) = els {
+                    els.simplify()
+                } else {
+                    false
+                }
+            }
         }
     }
 
@@ -348,6 +404,17 @@ impl ValueTree for BlockItemValueTree {
         match self {
             BlockItemValueTree::Item(tree) => tree.complicate(),
             BlockItemValueTree::Block(tree) => tree.complicate(),
+            BlockItemValueTree::If { cond, then, els } => {
+                if let Some(els) = els {
+                    if els.complicate() {
+                        return true;
+                    }
+                }
+                if then.complicate() {
+                    return true;
+                }
+                cond.complicate()
+            }
         }
     }
 }

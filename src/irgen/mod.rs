@@ -18,6 +18,28 @@ use error::CompileError;
 
 use symtable::{Symbol, SymbolTable};
 
+#[must_use]
+/// Whether the current basic block is terminated.
+pub struct Terminated(bool);
+
+impl From<bool> for Terminated {
+    fn from(terminated: bool) -> Self {
+        Terminated(terminated)
+    }
+}
+
+impl Terminated {
+    /// Create a new `Terminated` with the given value.
+    pub fn new(b: bool) -> Self {
+        Self(b)
+    }
+
+    /// Whether the current basic block is terminated.
+    pub fn is_terminated(&self) -> bool {
+        self.0
+    }
+}
+
 impl ast::CompUnit {
     /// Build IR from AST.
     pub fn build_ir(self) -> Result<(Program, ProgramMetadata)> {
@@ -57,8 +79,10 @@ impl ast::FuncDef {
         metadata.functions.insert(func, func_metadata);
 
         let mut layout = LayoutBuilder::new(program.func_mut(func), self.func_type.node);
-        self.block.node.build_ir_in(symtable, &mut layout)?;
-        layout.terminate_current_bb();
+        let terminated = self.block.node.build_ir_in(symtable, &mut layout)?;
+        if !terminated.is_terminated() {
+            layout.terminate_current_bb();
+        }
 
         Ok(())
     }
@@ -82,24 +106,38 @@ impl ast::FuncType {
 
 impl ast::Block {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, layout: &mut LayoutBuilder) -> Result<()> {
+    #[must_use = "this returns whether the current basic block is terminated"]
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<Terminated> {
+        let mut terminated = Terminated::new(false);
         symtable.push();
         for item in self.items {
-            if layout.terminated() {
+            if terminated.is_terminated() {
                 break;
             }
-            item.build_ir_in(symtable, layout)?;
+            terminated = item.build_ir_in(symtable, layout)?;
         }
         symtable.pop();
-        Ok(())
+        Ok(terminated)
     }
 }
 
 impl ast::BlockItem {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, layout: &mut LayoutBuilder) -> Result<()> {
+    #[must_use = "this returns whether the current basic block is terminated"]
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<Terminated> {
         match self {
-            ast::BlockItem::Decl { decl } => decl.build_ir_in(symtable, layout),
+            ast::BlockItem::Decl { decl } => {
+                decl.build_ir_in(symtable, layout)?;
+                Ok(false.into())
+            }
             ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, layout),
         }
     }
@@ -198,7 +236,12 @@ impl ast::InitVal {
 
 impl ast::Stmt {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, layout: &mut LayoutBuilder) -> Result<()> {
+    #[must_use = "this returns whether the current basic block is terminated"]
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<Terminated> {
         match self {
             ast::Stmt::Assign { ident, expr } => {
                 // Get the variable.
@@ -217,23 +260,22 @@ impl ast::Stmt {
                 // Store the value.
                 let store = layout.dfg_mut().new_value().store(expr, var);
                 layout.push_inst(store);
+                Ok(false.into())
             }
             ast::Stmt::Return { expr } => {
                 let expr = expr.build_ir_in(symtable, layout)?;
                 let dfg = layout.dfg_mut();
                 let ret = dfg.new_value().ret(Some(expr));
                 layout.push_inst(ret);
-                // SAFETY: the current basic block is terminated by `ret` instruction.
-                unsafe { layout.mark_terminated() };
+                Ok(true.into())
             }
             ast::Stmt::Expr { expr } => {
                 if let Some(expr) = expr {
                     expr.build_ir_in(symtable, layout)?;
                 }
+                Ok(false.into())
             }
-            ast::Stmt::Block { block } => {
-                block.node.build_ir_in(symtable, layout)?;
-            }
+            ast::Stmt::Block { block } => block.node.build_ir_in(symtable, layout),
             ast::Stmt::If { cond, then, els } => {
                 let cond = cond.build_ir_in(symtable, layout)?;
 
@@ -246,32 +288,32 @@ impl ast::Stmt {
                 };
 
                 layout.with_bb(then_bb, |layout| {
-                    then.node.build_ir_in(symtable, layout)?;
-                    let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
-                    layout.push_inst(jump_to_next);
+                    let terminated = then.node.build_ir_in(symtable, layout)?;
+                    if !terminated.is_terminated() {
+                        let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
+                        layout.push_inst(jump_to_next);
+                    }
                     Ok(())
                 })?;
 
                 if let Some(els) = els {
                     layout.with_bb(els_bb, |layout| {
-                        els.node.build_ir_in(symtable, layout)?;
-                        let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
-                        layout.push_inst(jump_to_next);
+                        let terminated = els.node.build_ir_in(symtable, layout)?;
+                        if !terminated.is_terminated() {
+                            let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
+                            layout.push_inst(jump_to_next);
+                        }
                         Ok(())
                     })?;
                 }
 
                 let branch = layout.dfg_mut().new_value().branch(cond, then_bb, els_bb);
                 layout.push_inst(branch);
-                unsafe {
-                    // SAFETY: the current basic block is terminated by `br` instruction.
-                    layout.mark_terminated();
-                    // SAFETY: the next basic block is empty.
-                    layout.switch_bb(next_bb);
-                }
+                // Safety: `next_bb` is empty, and `branch` is the last instruction.
+                layout.switch_bb(next_bb);
+                Ok(false.into())
             }
         }
-        Ok(())
     }
 }
 
