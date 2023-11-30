@@ -91,7 +91,7 @@ impl<'a> LayoutBuilder<'a> {
         let insts = self.current_bb_mut().insts_mut();
         let last_inst = insts.back_key().copied();
         if last_inst.is_none()
-            || last_inst.is_some_and(|inst| !crate::irutils::is_terminator(self.dfg().value(inst)))
+            || last_inst.is_some_and(|inst| !crate::utils::is_terminator(self.dfg().value(inst)))
         {
             let dfg = self.func.dfg_mut();
             let value = self.rtype.default_value(dfg);

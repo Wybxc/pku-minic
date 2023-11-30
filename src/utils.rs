@@ -160,3 +160,32 @@ pub fn ident_block(block: BasicBlock, dfg: &DataFlowGraph) -> String {
         .clone()
         .unwrap_or_else(|| format!("{:?}", block))
 }
+
+/// Declare a unique identifier type.
+#[macro_export]
+macro_rules! declare_u32_id {
+    ($name: ident) => {
+        /// Unique identifier.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[repr(transparent)]
+        pub struct $name(::std::num::NonZeroU32);
+        
+        impl $name {
+            /// Next unique identifier.
+            pub fn next_id() -> Self {
+                use ::std::cell::Cell;
+                use ::std::num::NonZeroU32;
+                thread_local! {
+                    static COUNTER: Cell<NonZeroU32> = Cell::new(unsafe { NonZeroU32::new_unchecked(1) });
+                }
+                COUNTER.with(|counter| {
+                    let id = counter.get();
+                    counter.set(NonZeroU32::new(id.get() + 1).unwrap());
+                    Self(id)
+                })
+            }
+        }
+    }
+}
+
+pub use declare_u32_id;

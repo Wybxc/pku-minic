@@ -12,6 +12,7 @@
 use koopa::ir::{dfg::DataFlowGraph, BinaryOp, ValueKind};
 use miette::Result;
 
+mod builder;
 mod error;
 mod imm;
 mod peephole;
@@ -21,10 +22,11 @@ pub mod riscv;
 pub mod simulate;
 
 use crate::{
+    codegen::riscv::Block,
     irgen::metadata::{FunctionMetadata, ProgramMetadata},
-    irutils,
+    utils,
 };
-use peephole::BlockBuilder;
+use builder::{BlockBuilder, FunctionBuilder};
 use register::{RegAlloc, Storage};
 use riscv::{Inst, RegId};
 
@@ -51,18 +53,19 @@ impl Codegen<&koopa::ir::FunctionData> {
     pub fn generate(self, metadata: &FunctionMetadata, opt_level: u8) -> Result<riscv::Function> {
         let name = &self.0.name()[1..];
 
-        let mut func = riscv::Function::new(name.to_string());
+        let func = riscv::Function::new(name.to_string());
+        let mut func = FunctionBuilder::new(func);
 
         let regs = RegAlloc::new(self.0, metadata)?;
         let dfg = self.0.dfg();
 
         // Prologue.
         let frame_size = regs.frame_size();
-        if frame_size > 0 {
-            let mut block = func.new_block();
-            block.push(Inst::Addi(RegId::SP, RegId::SP, -frame_size));
-            func.push(block);
-        }
+        let prologue = if frame_size > 0 {
+            Some(Inst::Addi(RegId::SP, RegId::SP, -frame_size))
+        } else {
+            None
+        };
 
         // Epilogue.
         let epilogue = if frame_size > 0 {
@@ -72,8 +75,14 @@ impl Codegen<&koopa::ir::FunctionData> {
         };
 
         // Generate code for the instruction.
-        for (&_bb, node) in self.0.layout().bbs() {
-            let mut block = BlockBuilder::new(func.new_block(), opt_level);
+        for (&bb, node) in self.0.layout().bbs() {
+            let label = self.0.dfg().bb(bb).name().clone();
+            let mut block = BlockBuilder::new(Block::new(), opt_level);
+            if self.0.layout().entry_bb() == Some(bb) {
+                if let Some(prologue) = prologue {
+                    block.push(prologue);
+                }
+            }
             for &inst in node.insts().keys() {
                 Codegen(inst).generate(&mut block, dfg, &regs, epilogue)?;
             }
@@ -82,10 +91,10 @@ impl Codegen<&koopa::ir::FunctionData> {
             // peephole optimization.
             peephole::optimize(&mut block, opt_level);
 
-            func.push(block);
+            func.push(label, bb, block);
         }
 
-        Ok(func)
+        Ok(func.build())
     }
 }
 
@@ -212,6 +221,12 @@ impl Codegen<koopa::ir::entities::Value> {
                 }
                 Ok(())
             }
+            ValueKind::Branch(branch) => {
+                let _cond = Codegen(branch.cond()).load_value(block, dfg, regs, RegId::A0)?;
+                let _then = branch.true_bb();
+                let _els = branch.false_bb();
+                todo!()
+            }
             _ => panic!("unexpected value kind: {:?}", dfg.value(self.0).kind()),
         }
     }
@@ -290,7 +305,7 @@ impl Codegen<&koopa::ir::entities::ValueData> {
     }
 
     fn is_const(&self) -> bool {
-        irutils::is_const(self.0)
+        utils::is_const(self.0)
     }
 }
 

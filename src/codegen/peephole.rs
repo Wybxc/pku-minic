@@ -5,21 +5,12 @@ use std::collections::HashMap;
 #[allow(unused_imports)]
 use nolog::*;
 
-use crate::codegen::riscv::{make_reg_set, RegSet};
-
 use super::imm::i12;
-use super::riscv::{Block, Inst, RegId};
-
-/// Basic block builder, with optimizations.
-pub struct BlockBuilder {
-    pub block: Block,
-    opt_level: u8,
-    cache: HashMap<RegId, Source>,
-}
+use crate::codegen::riscv::{make_reg_set, Block, Inst, RegId, RegSet};
 
 /// Source of the value in a register, if known.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Source {
+pub enum Source {
     /// From another register.
     ///
     /// Invariant: the source register does not have a source.
@@ -28,131 +19,148 @@ enum Source {
     Imm(i32),
 }
 
-impl BlockBuilder {
-    /// Create a new block builder.
-    pub fn new(block: Block, opt_level: u8) -> Self {
+/// Register cache.
+pub struct RegCache {
+    cache: HashMap<RegId, Source>,
+}
+
+impl RegCache {
+    /// Create a new register cache.
+    pub fn new() -> Self {
         Self {
-            block,
-            opt_level,
             cache: HashMap::new(),
         }
     }
 
-    /// Get a register's source, if known.
-    fn source(&self, reg: RegId) -> Option<Source> {
+    /// Get the source of the given register, if known.
+    pub fn source(&self, reg: RegId) -> Option<Source> {
         self.cache.get(&reg).copied()
     }
 
-    /// Push an instruction to the block, with optimizations.
-    ///
-    /// Optimizations:
-    /// - Reuse known values.
-    /// - Propagate known values.
-    pub fn push(&mut self, mut instr: Inst) {
-        // Propagate known values.
-        if self.opt_level >= 1 {
-            match instr {
-                Inst::Mv(dst, rs) => match self.source(rs) {
+    /// Insert a source for the given register.
+    pub fn insert(&mut self, reg: RegId, source: Source) {
+        self.cache.insert(reg, source);
+    }
+
+    /// Remove the source of the given register.
+    pub fn remove(&mut self, reg: &RegId) {
+        self.cache.remove(reg);
+    }
+
+    /// Retain only the elements specified by the predicate.
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&RegId, &mut Source) -> bool,
+    {
+        self.cache.retain(f);
+    }
+}
+
+/// Push an instruction to the block, with optimizations.
+///
+/// Optimizations:
+/// - Reuse known values.
+/// - Propagate known values.
+///
+/// Returns `None` if the instruction is redundant.
+/// Returns `Some(instr)` when the given instruction is optimized to `instr`.
+pub fn optimize_inst_push(mut instr: Inst, opt_level: u8, cache: &mut RegCache) -> Option<Inst> {
+    if opt_level >= 1 {
+        match instr {
+            Inst::Mv(dst, rs) => match cache.source(rs) {
+                Some(Source::Reg(src)) => {
+                    nolog::trace!("PKV " => "propagating {} from {}", src, rs);
+                    instr = Inst::Mv(dst, src)
+                }
+                Some(Source::Imm(imm)) => {
+                    nolog::trace!("PKV " => "propagating imm {} from {}", imm, rs);
+                    instr = Inst::Li(dst, imm)
+                }
+                None => {}
+            },
+            Inst::Add(dst, mut rs1, rs2) => {
+                if let Some(Source::Reg(src)) = cache.source(rs1) {
+                    nolog::trace!("PKV " => "propagating {} from {}", src, rs1);
+                    rs1 = src;
+                }
+                match cache.source(rs2) {
                     Some(Source::Reg(src)) => {
-                        nolog::trace!("PKV " => "propagating {} from {}", src, rs);
-                        instr = Inst::Mv(dst, src)
+                        nolog::trace!("PKV " => "propagating {} from {}", src, rs2);
+                        instr = Inst::Add(dst, rs1, src)
                     }
                     Some(Source::Imm(imm)) => {
-                        nolog::trace!("PKV " => "propagating imm {} from {}", imm, rs);
-                        instr = Inst::Li(dst, imm)
+                        if let Ok(imm) = i12::try_from(imm) {
+                            nolog::trace!("PKV " => "propagating imm {} from {}", imm, rs2);
+                            instr = Inst::Addi(dst, rs1, imm);
+                        } else {
+                            instr = Inst::Add(dst, rs1, rs2);
+                        }
                     }
                     None => {}
-                },
-                Inst::Add(dst, mut rs1, rs2) => {
-                    if let Some(Source::Reg(src)) = self.source(rs1) {
-                        nolog::trace!("PKV " => "propagating {} from {}", src, rs1);
-                        rs1 = src;
-                    }
-                    match self.source(rs2) {
-                        Some(Source::Reg(src)) => {
-                            nolog::trace!("PKV " => "propagating {} from {}", src, rs2);
-                            instr = Inst::Add(dst, rs1, src)
-                        }
-                        Some(Source::Imm(imm)) => {
-                            if let Ok(imm) = i12::try_from(imm) {
-                                nolog::trace!("PKV " => "propagating imm {} from {}", imm, rs2);
-                                instr = Inst::Addi(dst, rs1, imm);
-                            } else {
-                                instr = Inst::Add(dst, rs1, rs2);
-                            }
-                        }
-                        None => {}
-                    }
-                }
-                Inst::Sub(dst, mut rs1, rs2) => {
-                    if let Some(Source::Reg(src)) = self.source(rs1) {
-                        nolog::trace!("PKV " => "propagating {} from {}", src, rs1);
-                        rs1 = src;
-                    }
-                    match self.source(rs2) {
-                        Some(Source::Reg(src)) => {
-                            nolog::trace!("PKV " => "propagating {} from {}", src, rs2);
-                            instr = Inst::Sub(dst, rs1, src)
-                        }
-                        Some(Source::Imm(imm)) => {
-                            if let Ok(imm) = i12::try_from(-imm) {
-                                nolog::trace!("PKV " => "propagating imm {} from {}", -imm.value(), rs2);
-                                instr = Inst::Addi(dst, rs1, imm);
-                            } else {
-                                instr = Inst::Sub(dst, rs1, rs2);
-                            }
-                        }
-                        None => {}
-                    }
-                }
-                _ => {
-                    for rs in instr.source_mut().into_iter().flatten() {
-                        if let Some(Source::Reg(src)) = self.source(*rs) {
-                            nolog::trace!("PKV " => "propagating {} from {}", src, rs);
-                            *rs = src;
-                        }
-                    }
                 }
             }
-        }
-
-        // Reuse known values.
-        match instr {
-            Inst::Li(dst, imm) => {
-                if self.source(dst).unwrap_or(Source::Reg(dst)) == Source::Imm(imm) {
-                    nolog::trace!("RKV " => "reusing imm in {}", dst);
-                    return;
+            Inst::Sub(dst, mut rs1, rs2) => {
+                if let Some(Source::Reg(src)) = cache.source(rs1) {
+                    nolog::trace!("PKV " => "propagating {} from {}", src, rs1);
+                    rs1 = src;
                 }
-                self.cache.insert(dst, Source::Imm(imm));
-            }
-            Inst::Mv(dst, src) => {
-                let src = self.source(src).unwrap_or(Source::Reg(src));
-                if self.source(dst).unwrap_or(Source::Reg(dst)) == src {
-                    nolog::trace!("RKV " => "reusing {:?} in {}", src, dst);
-                    return;
+                match cache.source(rs2) {
+                    Some(Source::Reg(src)) => {
+                        nolog::trace!("PKV " => "propagating {} from {}", src, rs2);
+                        instr = Inst::Sub(dst, rs1, src)
+                    }
+                    Some(Source::Imm(imm)) => {
+                        if let Ok(imm) = i12::try_from(-imm) {
+                            nolog::trace!("PKV " => "propagating imm {} from {}", -imm.value(), rs2);
+                            instr = Inst::Addi(dst, rs1, imm);
+                        } else {
+                            instr = Inst::Sub(dst, rs1, rs2);
+                        }
+                    }
+                    None => {}
                 }
-                self.cache.insert(dst, src);
             }
             _ => {
-                if let Some(dest) = instr.dest() {
-                    self.cache.remove(&dest);
+                for rs in instr.source_mut().into_iter().flatten() {
+                    if let Some(Source::Reg(src)) = cache.source(*rs) {
+                        nolog::trace!("PKV " => "propagating {} from {}", src, rs);
+                        *rs = src;
+                    }
                 }
             }
         }
+    }
 
-        // Clean dirty cache.
-        if let Some(dest) = instr.dest() {
-            self.cache.retain(|_, source| *source != Source::Reg(dest));
+    // Reuse known values.
+    match instr {
+        Inst::Li(dst, imm) => {
+            if cache.source(dst).unwrap_or(Source::Reg(dst)) == Source::Imm(imm) {
+                nolog::trace!("RKV " => "reusing imm in {}", dst);
+                return None;
+            }
+            cache.insert(dst, Source::Imm(imm));
         }
-
-        nolog::trace!(->[0] "BLD " => "push instr: {}", instr);
-        self.block.push(instr);
+        Inst::Mv(dst, src) => {
+            let src = cache.source(src).unwrap_or(Source::Reg(src));
+            if cache.source(dst).unwrap_or(Source::Reg(dst)) == src {
+                nolog::trace!("RKV " => "reusing {:?} in {}", src, dst);
+                return None;
+            }
+            cache.insert(dst, src);
+        }
+        _ => {
+            if let Some(dest) = instr.dest() {
+                cache.remove(&dest);
+            }
+        }
     }
 
-    /// Build the block.
-    pub fn build(self) -> Block {
-        self.block
+    // Clean dirty cache.
+    if let Some(dest) = instr.dest() {
+        cache.retain(|_, source| *source != Source::Reg(dest));
     }
+
+    Some(instr)
 }
 
 /// Do peephole optimizations on a block.
@@ -187,7 +195,7 @@ pub fn optimize(block: &mut Block, opt_level: u8) {
 fn reduce_unused_values(block: &mut Block, mut live: RegSet) -> bool {
     let mut dirty = false;
     if let Some(back) = block.back() {
-        let mut cursor = block.cursor(back);
+        let mut cursor = block.cursor_mut(back);
         while !cursor.is_null() {
             let inst = cursor.inst().unwrap();
             nolog::trace!(->[0] "RUV " => "analyzing `{}`", inst);

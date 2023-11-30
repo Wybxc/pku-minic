@@ -73,7 +73,7 @@ use crate::{
         riscv::{make_reg_set, RegSet},
     },
     irgen::metadata::FunctionMetadata,
-    irutils,
+    utils,
 };
 
 /// Storage for a value.
@@ -121,7 +121,7 @@ impl RegAlloc {
             let insts = node.insts().keys().collect::<Vec<_>>();
             let mut scanned = HashSet::new();
             for &inst in insts.into_iter().rev() {
-                nolog::trace!(->[0] "VLA " => "analyzing `{}`", irutils::dbg_inst(inst, func.dfg()));
+                nolog::trace!(->[0] "VLA " => "analyzing `{}`", utils::dbg_inst(inst, func.dfg()));
                 let mut ops = operand_vars(inst, func.dfg());
                 for op in ops.iter_mut() {
                     if let Some(val) = op {
@@ -129,7 +129,7 @@ impl RegAlloc {
                             // The variable has been scanned, it will not die here.
                             *op = None;
                         } else {
-                            nolog::trace!("VLA " => "live out {}", irutils::ident_inst(*val, func.dfg()));
+                            nolog::trace!("VLA " => "live out {}", utils::ident_inst(*val, func.dfg()));
                         }
                     }
                 }
@@ -167,7 +167,7 @@ impl RegAlloc {
 
                 // Allocate registers for results.
                 let value = func.dfg().value(inst);
-                nolog::trace!(->[0] "REG " => "allocating for `{}`", irutils::dbg_inst(inst, func.dfg()));
+                nolog::trace!(->[0] "REG " => "allocating for `{}`", utils::dbg_inst(inst, func.dfg()));
                 if !value.ty().is_unit() {
                     // Not a unit type, allocate a register.
                     let try_reg = free.iter().next();
@@ -178,7 +178,7 @@ impl RegAlloc {
 
                         nolog::trace!(
                             "REG " => "allocate `{}` to `{reg}`",
-                            irutils::ident_inst(inst, func.dfg())
+                            utils::ident_inst(inst, func.dfg())
                         );
                     } else {
                         // No free register, spill a variable.
@@ -193,7 +193,7 @@ impl RegAlloc {
 
                         nolog::trace!(
                             "REG " => "spill {} to stack sp+{sp}",
-                            irutils::ident_inst(inst, func.dfg())
+                            utils::ident_inst(inst, func.dfg())
                         );
 
                         sp += 4;
@@ -223,7 +223,7 @@ impl RegAlloc {
 
 /// Get operands of an instruction, only return variables.
 fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
-    let is_var = |&v: &Value| !irutils::is_const(dfg.value(v));
+    let is_var = |&v: &Value| !utils::is_const(dfg.value(v));
     match dfg.value(value).kind() {
         ValueKind::Return(ret) => {
             let val = ret.value().filter(is_var);

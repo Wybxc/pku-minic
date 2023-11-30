@@ -481,7 +481,7 @@ impl ast::Expr {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::irutils::*;
+    use crate::utils::*;
     use proptest::prelude::*;
     use std::collections::HashSet;
 
