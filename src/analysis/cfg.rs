@@ -2,15 +2,14 @@
 
 use koopa::ir::{BasicBlock, FunctionData, ValueKind};
 use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::visit::{DfsPostOrder, Walker};
 use std::collections::HashMap;
 
 /// Control flow graph.
 pub struct ControlFlowGraph {
-    graph: DiGraph<BasicBlock, Edge>,
-    bb_map: HashMap<BasicBlock, NodeIndex>,
-    entry: NodeIndex,
-    exits: Vec<NodeIndex>,
+    pub(super) graph: DiGraph<BasicBlock, Edge>,
+    pub(super) bb_map: HashMap<BasicBlock, NodeIndex>,
+    pub(super) entry: NodeIndex,
+    pub(super) exits: Vec<NodeIndex>,
 }
 
 /// Edge type in the control flow graph.
@@ -107,21 +106,5 @@ impl ControlFlowGraph {
         self.graph
             .neighbors_directed(self.bb_map[&bb], petgraph::Direction::Outgoing)
             .map(move |node| self.graph[node])
-    }
-
-    /// "Topological sort" of the basic blocks.
-    ///
-    /// # Note
-    /// This is not a true topological sort, because there may be cycles in the graph.
-    /// This function actually performs a DFS post-order traversal, and returns the
-    /// reverse of the traversal order.
-    pub fn topo_sort(&self) -> Vec<BasicBlock> {
-        let mut blocks = Vec::with_capacity(self.graph.node_count());
-        for src in self.graph.externals(petgraph::Direction::Incoming) {
-            let dfs = DfsPostOrder::new(&self.graph, src);
-            blocks.extend(dfs.iter(&self.graph).map(move |node| self.graph[node]));
-        }
-        blocks.reverse();
-        blocks
     }
 }

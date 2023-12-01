@@ -2,7 +2,7 @@
 //!
 //! RISC-V has a number of instructions that take immediate values. These
 //! immediate values are often limited in size, such as 12-bit or 20-bit
-//! immediates. This module provides a type for representing these immediate
+//! immediate. This module provides a type for representing these immediate
 //! values.
 
 use std::{fmt::Display, ops::Neg};
@@ -33,25 +33,20 @@ impl<const N: usize> Imm<N> {
 
     /// Maximum value of the immediate.
     pub const MAX: i32 = (1 << (N - 1)) - 1;
-
-    /// Negate the immediate.
-    ///
-    /// # Panics
-    /// Panics if the negation overflows.
-    #[inline]
-    pub fn neg(self) -> Self {
-        if self.0 == Self::MIN {
-            panic!("negation overflow");
-        }
-        Self(-self.0)
-    }
 }
 
 impl Neg for Imm<12> {
     type Output = Self;
 
+    /// Negate the immediate.
+    ///
+    /// # Panics
+    /// Panics if the negation overflows.
     fn neg(self) -> Self::Output {
-        self.neg()
+        if self.0 == Self::MIN {
+            panic!("negation overflow");
+        }
+        Self(-self.0)
     }
 }
 

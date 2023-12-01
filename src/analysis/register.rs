@@ -58,20 +58,21 @@
 
 use std::collections::HashMap;
 
-use koopa::ir::Value;
+use koopa::ir::{FunctionData, Value};
 use miette::Result;
 
 #[allow(unused_imports)]
 use nolog::*;
 
-use super::riscv::RegId;
-use crate::analysis::Analyzer;
+use crate::analysis::dominators::Dominators;
+use crate::analysis::error::AnalysisError;
+use crate::analysis::liveliness::Liveliness;
+use crate::codegen::riscv::RegId;
 #[allow(unused_imports)]
 use crate::utils;
 use crate::{
     ast::Spanned,
     codegen::{
-        error::CodegenError,
         imm::i12,
         riscv::{make_reg_set, RegSet},
     },
@@ -102,19 +103,21 @@ impl Storage {
     }
 }
 
+/// Register allocation.
 pub struct RegAlloc {
     map: HashMap<Value, Storage>,
     frame_size: i12,
 }
 
 impl RegAlloc {
-    pub fn new(
-        analyzer: &mut Analyzer,
-        func: koopa::ir::Function,
+    /// Analyse register allocation.
+    pub fn analyze(
+        liveliness: &Liveliness,
+        dominators: &Dominators,
+        func: &FunctionData,
         metadata: &FunctionMetadata,
     ) -> Result<Self> {
-        // Liveliness analysis.
-        let liveliness = analyzer.analyze_liveliness(func);
+        // Get live variables.
         let live_in = &liveliness.live_in;
         let live_out = &liveliness.live_out;
 
@@ -125,10 +128,8 @@ impl RegAlloc {
         let mut sp = 0; // Stack pointer.
 
         // Scan basic blocks in topological order.
-        let cfg = analyzer.analyze_cfg(func);
-        let func = analyzer.program().func(func);
         let bbs = func.layout().bbs();
-        for bb in cfg.topo_sort() {
+        for bb in dominators.iter() {
             let node = bbs.node(&bb).unwrap();
 
             // Free registers. Initially all registers are free, and we will
@@ -170,7 +171,7 @@ impl RegAlloc {
                         map.insert(
                             inst,
                             Storage::Slot(i12::try_from(sp).map_err(|_| {
-                                CodegenError::TooManyLocals {
+                                AnalysisError::TooManyLocals {
                                     span: metadata.name.span().into(),
                                 }
                             })?),
@@ -189,7 +190,7 @@ impl RegAlloc {
 
         // 16-byte align the stack.
         let frame_size = (sp + 15) & !15;
-        let frame_size = i12::try_from(frame_size).map_err(|_| CodegenError::TooManyLocals {
+        let frame_size = i12::try_from(frame_size).map_err(|_| AnalysisError::TooManyLocals {
             span: metadata.name.span().into(),
         })?;
         Ok(Self { map, frame_size })

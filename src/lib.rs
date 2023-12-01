@@ -112,7 +112,7 @@ pub fn codegen(
 ) -> Result<codegen::riscv::Program> {
     use codegen::Codegen;
 
-    let mut analyzer = analysis::Analyzer::new(&ir);
-    let program = Codegen(&ir).generate(&mut analyzer, metadata, opt_level)?;
+    let mut analyzer = analysis::Analyzer::new(&ir, metadata);
+    let program = Codegen(&ir).generate(&mut analyzer, opt_level)?;
     Ok(program)
 }

@@ -13,22 +13,17 @@ use koopa::ir::{dfg::DataFlowGraph, BinaryOp, Function, ValueKind};
 use miette::Result;
 
 mod builder;
-mod error;
-mod imm;
+pub mod error;
+pub mod imm;
 mod peephole;
-mod register;
 pub mod riscv;
 #[cfg(any(test, feature = "proptest"))]
 pub mod simulate;
 
+use crate::analysis::register::{RegAlloc, Storage};
 use crate::analysis::Analyzer;
-use crate::{
-    codegen::riscv::Block,
-    irgen::metadata::{FunctionMetadata, ProgramMetadata},
-    utils,
-};
+use crate::{codegen::riscv::Block, utils};
 use builder::{BlockBuilder, FunctionBuilder};
-use register::{RegAlloc, Storage};
 use riscv::{Inst, RegId};
 
 /// Code generator for Koopa IR.
@@ -37,21 +32,11 @@ pub struct Codegen<T>(pub T);
 
 impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
-    pub fn generate(
-        self,
-        analyzer: &mut Analyzer,
-        metadata: &ProgramMetadata,
-        opt_level: u8,
-    ) -> Result<riscv::Program> {
+    pub fn generate(self, analyzer: &mut Analyzer, opt_level: u8) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            let func = Codegen(func_data).generate(
-                analyzer,
-                func,
-                metadata.functions.get(&func).unwrap(),
-                opt_level,
-            )?;
+            let func = Codegen(func_data).generate(analyzer, func, opt_level)?;
             program.push(func);
         }
         Ok(program)
@@ -64,11 +49,10 @@ impl Codegen<&koopa::ir::FunctionData> {
         self,
         analyzer: &mut Analyzer,
         func: Function,
-        metadata: &FunctionMetadata,
         opt_level: u8,
     ) -> Result<riscv::Function> {
         // Register allocation.
-        let regs = RegAlloc::new(analyzer, func, metadata)?;
+        let regs = analyzer.analyze_register_alloc(func)?;
 
         // Function builder.
         let name = &self.0.name()[1..];
@@ -116,7 +100,7 @@ impl Codegen<&koopa::ir::FunctionData> {
 }
 
 /// Simple binary operations that can be directly translated to RISC-V assembly.
-fn simple_bop_to_asm(op: BinaryOp, dst: RegId, lhs: RegId, rhs: RegId) -> Option<riscv::Inst> {
+fn simple_bop_to_asm(op: BinaryOp, dst: RegId, lhs: RegId, rhs: RegId) -> Option<Inst> {
     match op {
         BinaryOp::Add => Some(Inst::Add(dst, lhs, rhs)),
         BinaryOp::Sub => Some(Inst::Sub(dst, lhs, rhs)),
@@ -142,7 +126,7 @@ impl Codegen<koopa::ir::entities::Value> {
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
         regs: &RegAlloc,
-        epilogue: Option<riscv::Inst>,
+        epilogue: Option<Inst>,
     ) -> Result<()> {
         match dfg.value(self.0).kind() {
             ValueKind::Return(ret) => {
@@ -339,8 +323,9 @@ mod test {
             program in ast::arbitrary::arb_comp_unit().prop_map(ast::display::Displayable),
         ) {
             let (program, meta) = program.0.build_ir().unwrap();
-            let program_o0 = Codegen(&program).generate(&meta, 0).unwrap();
-            let program_o1 = Codegen(&program).generate(&meta, 1).unwrap();
+            let mut analyzer = Analyzer::new(&program, &meta);
+            let program_o0 = Codegen(&program).generate(&mut analyzer, 0).unwrap();
+            let program_o1 = Codegen(&program).generate(&mut analyzer, 1).unwrap();
 
             let mut regs1 = regs.clone();
             let mut mem1 = simulate::Memory::new();
