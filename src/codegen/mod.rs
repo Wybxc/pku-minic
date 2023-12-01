@@ -4,10 +4,11 @@
 //!
 //! - `generate` generates code for a function / instruction.
 //! - `load` loads a value.
-//!   + `load_xxx` loads a value and returns the register that contains the value.
-//!      If the value is not in a register, load it to a given temporary register.
-//!   + `load_xxx_to_reg` loads a value to a given register. This ensures that the
-//!      value will be stored in the given register.
+//!   + `load_xxx` loads a value and returns the register that contains the
+//!     value. If the value is not in a register, load it to a given temporary
+//!     register.
+//!   + `load_xxx_to_reg` loads a value to a given register. This ensures that
+//!     the value will be stored in the given register.
 
 use koopa::ir::{dfg::DataFlowGraph, BinaryOp, Function, ValueKind};
 use miette::Result;
@@ -20,11 +21,17 @@ pub mod riscv;
 #[cfg(any(test, feature = "proptest"))]
 pub mod simulate;
 
-use crate::analysis::register::{RegAlloc, Storage};
-use crate::analysis::Analyzer;
-use crate::{codegen::riscv::Block, utils};
 use builder::{BlockBuilder, FunctionBuilder};
 use riscv::{Inst, RegId};
+
+use crate::{
+    analysis::{
+        register::{RegAlloc, Storage},
+        Analyzer,
+    },
+    codegen::riscv::Block,
+    utils,
+};
 
 /// Code generator for Koopa IR.
 #[repr(transparent)]
@@ -238,7 +245,8 @@ impl Codegen<koopa::ir::entities::Value> {
 
     /// Load value.
     /// If the value is already in a register, return the register.
-    /// If the value is a constant or stored in stack, load it to a temporary register.
+    /// If the value is a constant or stored in stack, load it to a temporary
+    /// register.
     fn load_value(
         &self,
         block: &mut BlockBuilder,
@@ -305,16 +313,15 @@ impl Codegen<&koopa::ir::entities::ValueData> {
         Ok(())
     }
 
-    fn is_const(&self) -> bool {
-        utils::is_const(self.0)
-    }
+    fn is_const(&self) -> bool { utils::is_const(self.0) }
 }
 
 #[cfg(test)]
 mod test {
+    use proptest::prelude::*;
+
     use super::*;
     use crate::ast;
-    use proptest::prelude::*;
 
     proptest! {
         #[test]

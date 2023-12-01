@@ -10,15 +10,14 @@
 //! |- Before[B] = (After[B] - Defined[B]) | Used[B]
 //! ```
 
-use crate::analysis::cfg::ControlFlowGraph;
-use crate::utils;
-use im::HashSet;
-use koopa::ir::dfg::DataFlowGraph;
-use koopa::ir::{BasicBlock, FunctionData, Value, ValueKind};
 use std::collections::{HashMap, VecDeque};
 
+use im::HashSet;
+use koopa::ir::{dfg::DataFlowGraph, BasicBlock, FunctionData, Value, ValueKind};
 #[allow(unused_imports)]
 use nolog::*;
+
+use crate::{analysis::cfg::ControlFlowGraph, utils};
 
 /// Variable liveliness analysis result.
 pub struct Liveliness {
@@ -115,8 +114,8 @@ impl<'a> LivelinessAnalyzer<'a> {
     /// This function will calculate the used/defined variables in the block,
     /// and the variables may live out of each instruction.
     ///
-    /// Notice that live out information is not correct (it contains false positives)
-    /// until the global analysis is done.
+    /// Notice that live out information is not correct (it contains false
+    /// positives) until the global analysis is done.
     fn analyze_local(&mut self, bb: BasicBlock) -> (HashSet<Value>, HashSet<Value>) {
         // Already analyzed.
         if let Some((used, defined)) = self.use_defined.get(&bb).cloned() {

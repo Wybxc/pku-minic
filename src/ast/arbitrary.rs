@@ -1,11 +1,12 @@
 //! Arbitrary AST generator.
 
+use std::fmt::Debug;
+
 use proptest::{
     prelude::*,
     strategy::{NewTree, ValueTree},
     test_runner::TestRunner,
 };
-use std::fmt::Debug;
 
 use super::*;
 
@@ -19,14 +20,10 @@ struct LocalEnv {
 
 impl LocalEnv {
     /// Declare a constant.
-    pub fn decl_const(&mut self, ident: String) {
-        self.consts.insert(ident);
-    }
+    pub fn decl_const(&mut self, ident: String) { self.consts.insert(ident); }
 
     /// Declare a variable.
-    pub fn decl_var(&mut self, ident: String) {
-        self.vars.insert(ident);
-    }
+    pub fn decl_var(&mut self, ident: String) { self.vars.insert(ident); }
 
     /// Generate an arbitrary free identifier.
     pub fn arb_free_lvar(self) -> impl Strategy<Value = String> {
@@ -135,9 +132,7 @@ fn arb_func_def() -> impl Strategy<Value = FuncDef> {
 }
 
 /// Generate an arbitrary function type.
-fn arb_func_type() -> impl Strategy<Value = FuncType> {
-    Just(FuncType::Int)
-}
+fn arb_func_type() -> impl Strategy<Value = FuncType> { Just(FuncType::Int) }
 
 #[derive(Debug)]
 struct BlockStrategy {
@@ -456,9 +451,7 @@ fn arb_init_val(local: LocalEnv) -> impl Strategy<Value = InitVal> {
     arb_expr(local).prop_map(|expr| InitVal { expr })
 }
 
-fn arb_btype() -> impl Strategy<Value = BType> {
-    Just(BType::Int)
-}
+fn arb_btype() -> impl Strategy<Value = BType> { Just(BType::Int) }
 
 fn arb_const_expr(local: LocalEnv) -> impl Strategy<Value = ConstExpr> {
     let s_number = arb_number_expr();
@@ -588,7 +581,7 @@ mod test {
 
     impl<'a, T> Iterator for Samples<'a, T>
     where
-        T: std::fmt::Debug,
+        T: Debug,
     {
         type Item = T;
 

@@ -50,31 +50,27 @@
 //!
 //! ## TODO
 //!
-//! - Now we always spill the newest variable, which is not optimal.
-//!   We should spill the variable that will not be used for a long time.
-//! - We do not allocate a0, t0, t1, since they are reserved for return
-//!   value and temporary storage. However, we can use them if they are
-//!   not used in some time.
+//! - Now we always spill the newest variable, which is not optimal. We should
+//!   spill the variable that will not be used for a long time.
+//! - We do not allocate a0, t0, t1, since they are reserved for return value
+//!   and temporary storage. However, we can use them if they are not used in
+//!   some time.
 
 use std::collections::HashMap;
 
 use koopa::ir::{FunctionData, Value};
 use miette::Result;
-
 #[allow(unused_imports)]
 use nolog::*;
 
-use crate::analysis::dominators::Dominators;
-use crate::analysis::error::AnalysisError;
-use crate::analysis::liveliness::Liveliness;
-use crate::codegen::riscv::RegId;
 #[allow(unused_imports)]
 use crate::utils;
 use crate::{
+    analysis::{dominators::Dominators, error::AnalysisError, liveliness::Liveliness},
     ast::Spanned,
     codegen::{
         imm::i12,
-        riscv::{make_reg_set, RegSet},
+        riscv::{make_reg_set, RegId, RegSet},
     },
     irgen::metadata::FunctionMetadata,
 };
@@ -197,12 +193,8 @@ impl RegAlloc {
     }
 
     /// Get storage of a value.
-    pub fn get(&self, value: Value) -> Storage {
-        self.map[&value]
-    }
+    pub fn get(&self, value: Value) -> Storage { self.map[&value] }
 
     /// Minimum size of stack frame, in bytes.
-    pub fn frame_size(&self) -> i12 {
-        self.frame_size
-    }
+    pub fn frame_size(&self) -> i12 { self.frame_size }
 }

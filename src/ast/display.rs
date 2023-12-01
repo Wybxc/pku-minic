@@ -1,5 +1,6 @@
-use indenter::indented;
 use std::fmt::{Debug, Display, Write};
+
+use indenter::indented;
 
 use super::*;
 
@@ -189,7 +190,5 @@ impl Display for BinaryOp {
 pub struct Displayable<T>(pub T);
 
 impl<T: Display> Debug for Displayable<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.0) }
 }

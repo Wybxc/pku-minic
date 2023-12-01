@@ -1,13 +1,16 @@
 //! Build IR from AST.
 
-use crate::ast::Spanned;
-use crate::irgen::layout::LayoutBuilder;
-use crate::irgen::metadata::FunctionMetadata;
-use crate::{ast, irgen::metadata::ProgramMetadata};
-use koopa::ir::builder_traits::*;
-use koopa::ir::dfg::DataFlowGraph;
-use koopa::ir::*;
+use koopa::ir::{builder_traits::*, dfg::DataFlowGraph, *};
 use miette::Result;
+
+use crate::{
+    ast,
+    ast::Spanned,
+    irgen::{
+        layout::LayoutBuilder,
+        metadata::{FunctionMetadata, ProgramMetadata},
+    },
+};
 
 mod error;
 mod layout;
@@ -15,7 +18,6 @@ pub mod metadata;
 mod symtable;
 
 use error::CompileError;
-
 use symtable::{Symbol, SymbolTable};
 
 #[must_use]
@@ -23,21 +25,15 @@ use symtable::{Symbol, SymbolTable};
 pub struct Terminated(bool);
 
 impl From<bool> for Terminated {
-    fn from(terminated: bool) -> Self {
-        Terminated(terminated)
-    }
+    fn from(terminated: bool) -> Self { Terminated(terminated) }
 }
 
 impl Terminated {
     /// Create a new `Terminated` with the given value.
-    pub fn new(b: bool) -> Self {
-        Self(b)
-    }
+    pub fn new(b: bool) -> Self { Self(b) }
 
     /// Whether the current basic block is terminated.
-    pub fn is_terminated(&self) -> bool {
-        self.0
-    }
+    pub fn is_terminated(&self) -> bool { self.0 }
 }
 
 impl ast::CompUnit {
@@ -106,7 +102,6 @@ impl ast::FuncType {
 
 impl ast::Block {
     /// Build IR from AST in an existing IR node.
-    #[must_use = "this returns whether the current basic block is terminated"]
     pub fn build_ir_in(
         self,
         symtable: &mut SymbolTable,
@@ -127,7 +122,6 @@ impl ast::Block {
 
 impl ast::BlockItem {
     /// Build IR from AST in an existing IR node.
-    #[must_use = "this returns whether the current basic block is terminated"]
     pub fn build_ir_in(
         self,
         symtable: &mut SymbolTable,
@@ -236,7 +230,6 @@ impl ast::InitVal {
 
 impl ast::Stmt {
     /// Build IR from AST in an existing IR node.
-    #[must_use = "this returns whether the current basic block is terminated"]
     pub fn build_ir_in(
         self,
         symtable: &mut SymbolTable,
@@ -288,8 +281,7 @@ impl ast::Stmt {
                 };
 
                 layout.with_bb(then_bb, |layout| {
-                    let terminated = then.node.build_ir_in(symtable, layout)?;
-                    if !terminated.is_terminated() {
+                    if !then.node.build_ir_in(symtable, layout)?.is_terminated() {
                         let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
                         layout.push_inst(jump_to_next);
                     }
@@ -298,8 +290,7 @@ impl ast::Stmt {
 
                 if let Some(els) = els {
                     layout.with_bb(els_bb, |layout| {
-                        let terminated = els.node.build_ir_in(symtable, layout)?;
-                        if !terminated.is_terminated() {
+                        if !els.node.build_ir_in(symtable, layout)?.is_terminated() {
                             let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
                             layout.push_inst(jump_to_next);
                         }
@@ -318,7 +309,8 @@ impl ast::Stmt {
 }
 
 impl ast::Expr {
-    /// Build IR from AST in a BasicBlock, return the handle of the result value.
+    /// Build IR from AST in a BasicBlock, return the handle of the result
+    /// value.
     pub fn build_ir_in(self, symtable: &SymbolTable, layout: &mut LayoutBuilder) -> Result<Value> {
         Ok(match self {
             ast::Expr::Unary { op, expr } => {
@@ -451,7 +443,7 @@ impl ast::Expr {
                     ast::BinaryOp::Add => lhs.saturating_add(rhs),
                     ast::BinaryOp::Sub => lhs.saturating_sub(rhs),
                     ast::BinaryOp::Mul => lhs.saturating_mul(rhs),
-                    ast::BinaryOp::Div => lhs.checked_div(rhs).unwrap_or(-1), // Maybe a compile error?
+                    ast::BinaryOp::Div => lhs.checked_div(rhs).unwrap_or(-1), // A compile error?
                     ast::BinaryOp::Mod => lhs.checked_rem(rhs).unwrap_or(-1),
                     ast::BinaryOp::Eq => (lhs == rhs) as i32,
                     ast::BinaryOp::Ne => (lhs != rhs) as i32,
@@ -480,10 +472,12 @@ impl ast::Expr {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
+
+    use proptest::prelude::*;
+
     use super::*;
     use crate::utils::*;
-    use proptest::prelude::*;
-    use std::collections::HashSet;
 
     proptest! {
         #[test]

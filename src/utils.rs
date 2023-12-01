@@ -21,8 +21,7 @@ mod test_is_const {
 
     #[test]
     fn int_is_const() {
-        use koopa::ir::builder_traits::*;
-        use koopa::ir::*;
+        use koopa::ir::{builder_traits::*, *};
 
         let mut program = Program::new();
         let func = program.new_func(FunctionData::with_param_names(
@@ -38,8 +37,7 @@ mod test_is_const {
 
     #[test]
     fn expr_is_not_const() {
-        use koopa::ir::builder_traits::*;
-        use koopa::ir::*;
+        use koopa::ir::{builder_traits::*, *};
 
         let mut program = Program::new();
         let func = program.new_func(FunctionData::with_param_names(

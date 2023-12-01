@@ -31,9 +31,7 @@ impl<'a> LayoutBuilder<'a> {
     }
 
     /// Function data.
-    pub fn func_mut(&mut self) -> &mut FunctionData {
-        self.func
-    }
+    pub fn func_mut(&mut self) -> &mut FunctionData { self.func }
 
     /// Basic block node.
     pub fn bb_mut(&mut self, bb: BasicBlock) -> &mut BasicBlockNode {
@@ -41,24 +39,16 @@ impl<'a> LayoutBuilder<'a> {
     }
 
     /// Current basic block id.
-    pub fn current(&self) -> BasicBlock {
-        self.current
-    }
+    pub fn current(&self) -> BasicBlock { self.current }
 
     /// Current basic block node.
-    pub fn current_bb_mut(&mut self) -> &mut BasicBlockNode {
-        self.bb_mut(self.current)
-    }
+    pub fn current_bb_mut(&mut self) -> &mut BasicBlockNode { self.bb_mut(self.current) }
 
     /// Dataflow graph.
-    pub fn dfg(&self) -> &DataFlowGraph {
-        self.func.dfg()
-    }
+    pub fn dfg(&self) -> &DataFlowGraph { self.func.dfg() }
 
     /// Dataflow graph.
-    pub fn dfg_mut(&mut self) -> &mut DataFlowGraph {
-        self.func.dfg_mut()
-    }
+    pub fn dfg_mut(&mut self) -> &mut DataFlowGraph { self.func.dfg_mut() }
 
     /// Push an instruction to the current basic block.
     ///
@@ -86,7 +76,8 @@ impl<'a> LayoutBuilder<'a> {
 
     /// Terminate the current basic block.
     ///
-    /// If the current basic block is not terminated, insert a default terminator.
+    /// If the current basic block is not terminated, insert a default
+    /// terminator.
     pub fn terminate_current_bb(&mut self) {
         let insts = self.current_bb_mut().insts_mut();
         let last_inst = insts.back_key().copied();
@@ -127,8 +118,7 @@ impl<'a> LayoutBuilder<'a> {
     /// Switch current basic block.
     ///
     /// # Safety
-    /// The new basic block must not be terminated, and current basic block must be terminated.
-    pub fn switch_bb(&mut self, bb: BasicBlock) {
-        self.current = bb;
-    }
+    /// The new basic block must not be terminated, and current basic block must
+    /// be terminated.
+    pub fn switch_bb(&mut self, bb: BasicBlock) { self.current = bb; }
 }

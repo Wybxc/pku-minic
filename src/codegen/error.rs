@@ -1,8 +1,9 @@
 //! Error type for the code generator.
 
-use crate::analysis::error::AnalysisError;
 use miette::Diagnostic;
 use thiserror::Error;
+
+use crate::analysis::error::AnalysisError;
 
 /// Error type for the code generator.
 #[derive(Error, Debug, Diagnostic)]

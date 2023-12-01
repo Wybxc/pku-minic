@@ -5,12 +5,13 @@
 //! bi-simulates with the original program, i.e. for arbitrary initial
 //! states, the two programs produce the same final states.
 
-use std::collections::HashMap;
-use std::fmt::{self, Debug, Formatter};
-
-use crate::codegen::riscv::{make_reg_set, Program, RegSet};
+use std::{
+    collections::HashMap,
+    fmt::{self, Debug, Formatter},
+};
 
 use super::riscv::{Inst, RegId};
+use crate::codegen::riscv::{make_reg_set, Program, RegSet};
 
 /// Register file.
 #[derive(Clone, PartialEq, Eq)]
@@ -30,9 +31,7 @@ impl Regs {
     }
 
     /// Get the value of a register.
-    pub fn get(&self, reg: RegId) -> i32 {
-        self.0[reg as usize]
-    }
+    pub fn get(&self, reg: RegId) -> i32 { self.0[reg as usize] }
 
     /// Set the value of a register.
     pub fn set(&mut self, reg: RegId, value: i32) {
@@ -143,9 +142,7 @@ impl Memory {
 }
 
 impl Default for Memory {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 /// A simulator for the codegen output.

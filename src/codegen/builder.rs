@@ -33,9 +33,7 @@ impl FunctionBuilder {
     }
 
     /// Build the function.
-    pub fn build(self) -> Function {
-        self.function
-    }
+    pub fn build(self) -> Function { self.function }
 }
 
 /// Basic block builder.
@@ -63,7 +61,5 @@ impl BlockBuilder {
     }
 
     /// Build the block.
-    pub fn build(self) -> Block {
-        self.block
-    }
+    pub fn build(self) -> Block { self.block }
 }

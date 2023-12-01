@@ -1,9 +1,11 @@
 //! Dominator tree of control flow graph.
 
-use crate::analysis::cfg::ControlFlowGraph;
+use std::collections::{HashMap, HashSet};
+
 use koopa::ir::BasicBlock;
 use petgraph::algo::dominators;
-use std::collections::{HashMap, HashSet};
+
+use crate::analysis::cfg::ControlFlowGraph;
 
 /// Dominator tree of control flow graph.
 pub struct Dominators {

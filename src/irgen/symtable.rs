@@ -1,8 +1,6 @@
 //! Symbol table.
 
-use std::borrow::Borrow;
-use std::collections::HashMap;
-use std::hash::Hash;
+use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 
 use koopa::ir::Value;
 
@@ -25,14 +23,10 @@ impl SymbolTable {
     }
 
     /// Push a new scope.
-    pub fn push(&mut self) {
-        self.chain_map.push();
-    }
+    pub fn push(&mut self) { self.chain_map.push(); }
 
     /// Pop a scope.
-    pub fn pop(&mut self) {
-        self.chain_map.pop();
-    }
+    pub fn pop(&mut self) { self.chain_map.pop(); }
 
     /// Insert a symbol.
     pub fn insert_var(&mut self, ident: String, symbol: Symbol) {
@@ -40,15 +34,11 @@ impl SymbolTable {
     }
 
     /// Get a symbol.
-    pub fn get_var(&self, ident: &str) -> Option<&Symbol> {
-        self.chain_map.get(ident)
-    }
+    pub fn get_var(&self, ident: &str) -> Option<&Symbol> { self.chain_map.get(ident) }
 }
 
 impl Default for SymbolTable {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 /// Chain map.
@@ -60,27 +50,19 @@ struct ChainMap<K: Eq + Hash, V> {
 
 impl<K: Eq + Hash, V> ChainMap<K, V> {
     /// Create a new chain map with no scopes.
-    fn new() -> Self {
-        Self { maps: vec![] }
-    }
+    fn new() -> Self { Self { maps: vec![] } }
 
     /// Push a new scope.
-    fn push(&mut self) {
-        self.maps.push(HashMap::new());
-    }
+    fn push(&mut self) { self.maps.push(HashMap::new()); }
 
     /// Pop a scope.
-    fn pop(&mut self) {
-        self.maps.pop();
-    }
+    fn pop(&mut self) { self.maps.pop(); }
 
     /// Insert a key-value pair.
     ///
     /// # Panics
     /// Panics if there is no scope.
-    fn insert(&mut self, key: K, value: V) {
-        self.maps.last_mut().unwrap().insert(key, value);
-    }
+    fn insert(&mut self, key: K, value: V) { self.maps.last_mut().unwrap().insert(key, value); }
 
     /// Get a value.
     fn get<Q>(&self, key: &Q) -> Option<&V>
@@ -100,8 +82,9 @@ impl<K: Eq + Hash, V> ChainMap<K, V> {
 
 #[cfg(test)]
 mod test_chain_map {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     proptest! {
         #[test]

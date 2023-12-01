@@ -1,15 +1,16 @@
 //! Program analysis.
 
-use std::collections::HashMap;
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
-use crate::analysis::cfg::ControlFlowGraph;
-use crate::analysis::dominators::Dominators;
-use crate::analysis::liveliness::Liveliness;
-use crate::analysis::register::RegAlloc;
-use crate::irgen::metadata::ProgramMetadata;
 use koopa::ir::{Function, Program};
 use miette::Result;
+
+use crate::{
+    analysis::{
+        cfg::ControlFlowGraph, dominators::Dominators, liveliness::Liveliness, register::RegAlloc,
+    },
+    irgen::metadata::ProgramMetadata,
+};
 
 pub mod cfg;
 pub mod dominators;
@@ -39,9 +40,7 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Get the program being analysed.
-    pub fn program(&self) -> &Program {
-        self.program
-    }
+    pub fn program(&self) -> &Program { self.program }
 
     /// Analyse the control flow graph of a function.
     ///
