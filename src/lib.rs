@@ -3,6 +3,7 @@
 
 use lalrpop_util::lalrpop_mod;
 
+pub mod analysis;
 pub mod ast;
 pub mod codegen;
 pub mod irgen;
@@ -111,6 +112,7 @@ pub fn codegen(
 ) -> Result<codegen::riscv::Program> {
     use codegen::Codegen;
 
-    let program = Codegen(&ir).generate(metadata, opt_level)?;
+    let mut analyzer = analysis::Analyzer::new(&ir);
+    let program = Codegen(&ir).generate(&mut analyzer, metadata, opt_level)?;
     Ok(program)
 }

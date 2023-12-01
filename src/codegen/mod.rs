@@ -9,7 +9,7 @@
 //!   + `load_xxx_to_reg` loads a value to a given register. This ensures that the
 //!      value will be stored in the given register.
 
-use koopa::ir::{dfg::DataFlowGraph, BinaryOp, ValueKind};
+use koopa::ir::{dfg::DataFlowGraph, BinaryOp, Function, ValueKind};
 use miette::Result;
 
 mod builder;
@@ -21,6 +21,7 @@ pub mod riscv;
 #[cfg(any(test, feature = "proptest"))]
 pub mod simulate;
 
+use crate::analysis::Analyzer;
 use crate::{
     codegen::riscv::Block,
     irgen::metadata::{FunctionMetadata, ProgramMetadata},
@@ -36,12 +37,21 @@ pub struct Codegen<T>(pub T);
 
 impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, metadata: &ProgramMetadata, opt_level: u8) -> Result<riscv::Program> {
+    pub fn generate(
+        self,
+        analyzer: &mut Analyzer,
+        metadata: &ProgramMetadata,
+        opt_level: u8,
+    ) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            let func =
-                Codegen(func_data).generate(metadata.functions.get(&func).unwrap(), opt_level)?;
+            let func = Codegen(func_data).generate(
+                analyzer,
+                func,
+                metadata.functions.get(&func).unwrap(),
+                opt_level,
+            )?;
             program.push(func);
         }
         Ok(program)
@@ -50,13 +60,20 @@ impl Codegen<&koopa::ir::Program> {
 
 impl Codegen<&koopa::ir::FunctionData> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, metadata: &FunctionMetadata, opt_level: u8) -> Result<riscv::Function> {
-        let name = &self.0.name()[1..];
+    pub fn generate(
+        self,
+        analyzer: &mut Analyzer,
+        func: Function,
+        metadata: &FunctionMetadata,
+        opt_level: u8,
+    ) -> Result<riscv::Function> {
+        // Register allocation.
+        let regs = RegAlloc::new(analyzer, func, metadata)?;
 
+        // Function builder.
+        let name = &self.0.name()[1..];
         let func = riscv::Function::new(name.to_string());
         let mut func = FunctionBuilder::new(func);
-
-        let regs = RegAlloc::new(self.0, metadata)?;
         let dfg = self.0.dfg();
 
         // Prologue.

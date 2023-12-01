@@ -74,13 +74,18 @@ thread_local! {
 
 /// Get the name of a value for debug printing.
 pub fn ident_inst(inst: Value, dfg: &DataFlowGraph) -> String {
-    dfg.value(inst).name().clone().unwrap_or_else(|| {
+    let value = dfg.value(inst);
+    value.name().clone().unwrap_or_else(|| {
         NAME_MAP.with(|map| {
             let mut map = map.borrow_mut();
             if let Some(name) = map.get(&inst) {
                 return name.clone();
             }
-            let name = format!("%{}", NEXT_ID.replace(NEXT_ID.get() + 1));
+            let name = match value.kind() {
+                ValueKind::Integer(i) => format!("{}", i.value()),
+                ValueKind::ZeroInit(_) => "0".to_string(),
+                _ => format!("%{}", NEXT_ID.replace(NEXT_ID.get() + 1)),
+            };
             map.insert(inst, name.clone());
             name
         })
@@ -169,7 +174,7 @@ macro_rules! declare_u32_id {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[repr(transparent)]
         pub struct $name(::std::num::NonZeroU32);
-        
+
         impl $name {
             /// Next unique identifier.
             pub fn next_id() -> Self {

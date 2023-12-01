@@ -4,7 +4,7 @@ use koopa::ir::BasicBlock;
 
 use crate::codegen::{
     peephole::{self, RegCache},
-    riscv::{Block, Inst, Function, BlockId},
+    riscv::{Block, BlockId, Function, Inst},
 };
 
 /// Function builder.
@@ -24,7 +24,8 @@ impl FunctionBuilder {
 
     /// Push a block to the function.
     pub fn push(&mut self, label: Option<String>, bb: BasicBlock, block: Block) {
-        let id = self.function.push(block);
+        let id = BlockId::next_id();
+        self.function.push(id, block);
         self.blocks_map.insert(bb, id);
         if let Some(label) = label {
             id.set_label(label);

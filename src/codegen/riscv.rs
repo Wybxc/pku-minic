@@ -551,10 +551,7 @@ impl Block {
 
     /// Get the instruction with the given id.
     pub fn get(&self, id: InstId) -> Option<Inst> {
-        self.instructions
-            .cursor(id)
-            .node()
-            .map(|node| node.inst)
+        self.instructions.cursor(id).node().map(|node| node.inst)
     }
 
     /// The number of instructions in the basic block.
@@ -586,9 +583,7 @@ impl Block {
 
     /// Get an iterator over the instructions in the basic block.
     pub fn insts(&self) -> impl Iterator<Item = (InstId, Inst)> + '_ {
-        self.instructions
-            .iter()
-            .map(|(&id, node)| (id, node.inst))
+        self.instructions.iter().map(|(&id, node)| (id, node.inst))
     }
 }
 
@@ -781,8 +776,7 @@ impl Function {
     }
 
     /// Add a basic block to the function.
-    pub fn push(&mut self, block: Block) -> BlockId {
-        let id = BlockId::next_id();
+    pub fn push(&mut self, id: BlockId, block: Block) -> BlockId {
         let node = BlockNode::new(block);
         self.blocks.push_back(id, node).unwrap();
         id

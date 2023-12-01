@@ -582,6 +582,7 @@ dependencies = [
  "miette",
  "nolog",
  "owo-colors",
+ "petgraph",
  "proptest",
  "rand",
  "regex",
