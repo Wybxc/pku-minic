@@ -1,40 +1,7 @@
-use std::collections::HashMap;
-
-use koopa::ir::BasicBlock;
-
 use crate::codegen::{
     peephole::{self, RegCache},
-    riscv::{Block, BlockId, Function, Inst},
+    riscv::{Block, Inst},
 };
-
-/// Function builder.
-pub struct FunctionBuilder {
-    function: Function,
-    blocks_map: HashMap<BasicBlock, BlockId>,
-}
-
-impl FunctionBuilder {
-    /// Create a new function builder.
-    pub fn new(function: Function) -> Self {
-        Self {
-            function,
-            blocks_map: HashMap::new(),
-        }
-    }
-
-    /// Push a block to the function.
-    pub fn push(&mut self, label: Option<String>, bb: BasicBlock, block: Block) {
-        let id = BlockId::next_id();
-        self.function.push(id, block);
-        self.blocks_map.insert(bb, id);
-        if let Some(label) = label {
-            id.set_label(label);
-        }
-    }
-
-    /// Build the function.
-    pub fn build(self) -> Function { self.function }
-}
 
 /// Basic block builder.
 pub struct BlockBuilder {

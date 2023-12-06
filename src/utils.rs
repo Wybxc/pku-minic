@@ -146,6 +146,17 @@ pub fn dbg_inst(inst: Value, dfg: &DataFlowGraph) -> String {
                 "return".to_string()
             }
         }
+        ValueKind::Jump(v) => {
+            format!("jump {}", ident_block(v.target(), dfg))
+        }
+        ValueKind::Branch(v) => {
+            format!(
+                "branch {}, {}, {}",
+                ident_inst(v.cond(), dfg),
+                ident_block(v.true_bb(), dfg),
+                ident_block(v.false_bb(), dfg)
+            )
+        }
         _ => todo!(),
     };
     if value.ty().is_unit() {

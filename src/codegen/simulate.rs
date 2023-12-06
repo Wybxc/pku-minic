@@ -252,6 +252,10 @@ pub fn simulate(code: &Program, regs: &mut Regs, mem: &mut Memory) {
                         mem.write::<4>(addr, regs.get(rs2).to_le_bytes());
                     }
                     Inst::Nop => (),
+                    Inst::J(label) => {
+                        jump = Some(main.cursor(label));
+                        break;
+                    }
                     Inst::Beq(_, _, label)
                     | Inst::Beqz(_, label)
                     | Inst::Bge(_, _, label)

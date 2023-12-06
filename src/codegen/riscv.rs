@@ -249,6 +249,8 @@ pub enum Inst {
     // --------------------
     /// Return.
     Ret,
+    /// Jump.
+    J(BlockId),
     /// Branch if equal.
     Beq(RegId, RegId, BlockId),
     /// Branch if equal to zero.
@@ -333,6 +335,7 @@ impl Display for Inst {
             Inst::Lbu(rd, imm, rs) => write!(f, "lbu {}, {}({})", rd, imm, rs),
             Inst::Lhu(rd, imm, rs) => write!(f, "lhu {}, {}({})", rd, imm, rs),
             Inst::Ret => write!(f, "ret"),
+            Inst::J(label) => write!(f, "j {}", label),
             Inst::Beq(rs1, rs2, label) => write!(f, "beq {}, {}, {}", rs1, rs2, label),
             Inst::Beqz(rs, label) => write!(f, "beqz {}, {}", rs, label),
             Inst::Bge(rs1, rs2, label) => write!(f, "bge {}, {}, {}", rs1, rs2, label),
@@ -400,6 +403,7 @@ impl Inst {
             Inst::Lbu(rd, _, _) => Some(rd),
             Inst::Lhu(rd, _, _) => Some(rd),
             Inst::Ret => None,
+            Inst::J(_) => None,
             Inst::Beq(_, _, _) => None,
             Inst::Beqz(_, _) => None,
             Inst::Bge(_, _, _) => None,
@@ -468,6 +472,7 @@ impl Inst {
             Inst::Lbu(_, _, rs) => [None, Some(rs)],
             Inst::Lhu(_, _, rs) => [None, Some(rs)],
             Inst::Ret => [None, None],
+            Inst::J(_) => [None, None],
             Inst::Beq(rs1, rs2, _) => [Some(rs1), Some(rs2)],
             Inst::Beqz(rs, _) => [None, Some(rs)],
             Inst::Bge(rs1, rs2, _) => [Some(rs1), Some(rs2)],

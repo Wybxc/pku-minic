@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 
 use koopa::ir::{BasicBlock, FunctionData, ValueKind};
+#[allow(unused_imports)]
+use nolog::*;
 use petgraph::graph::{DiGraph, NodeIndex};
 
 /// Control flow graph.
@@ -58,18 +60,22 @@ impl ControlFlowGraph {
                         let false_node = bb_map[&branch.false_bb()];
                         graph.add_edge(node, true_node, Edge::True);
                         graph.add_edge(node, false_node, Edge::False);
+                        trace!(->[0] "CFG " => "add edge {} -T> {}", node.index(), true_node.index());
+                        trace!(->[0] "CFG " => "add edge {} -F> {}", node.index(), false_node.index());
                     }
                     ValueKind::Jump(jump) => {
                         let jump_node = bb_map[&jump.target()];
                         graph.add_edge(node, jump_node, Edge::Unconditional);
+                        trace!(->[0] "CFG " => "add edge {} --> {}", node.index(), jump_node.index());
                     }
                     ValueKind::Return(_) => exits.push(node),
-                    // TODO: Call?
                     _ => {}
                 }
             }
         }
 
+        trace!("CFG " => "entry: {}", entry.index());
+        trace!("CFG " => "exits: {:?}", exits.iter().map(|&n| n.index()).collect::<Vec<_>>());
         Self {
             graph,
             bb_map,

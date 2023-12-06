@@ -10,7 +10,9 @@
 //!   + `load_xxx_to_reg` loads a value to a given register. This ensures that
 //!     the value will be stored in the given register.
 
-use koopa::ir::{dfg::DataFlowGraph, BinaryOp, Function, ValueKind};
+use std::collections::HashMap;
+
+use koopa::ir::{dfg::DataFlowGraph, BasicBlock, BinaryOp, Function, ValueKind};
 use miette::Result;
 
 mod builder;
@@ -21,7 +23,7 @@ pub mod riscv;
 #[cfg(any(test, feature = "proptest"))]
 pub mod simulate;
 
-use builder::{BlockBuilder, FunctionBuilder};
+use builder::BlockBuilder;
 use riscv::{Inst, RegId};
 
 use crate::{
@@ -29,7 +31,7 @@ use crate::{
         register::{RegAlloc, Storage},
         Analyzer,
     },
-    codegen::riscv::Block,
+    codegen::riscv::{Block, BlockId},
     utils,
 };
 
@@ -60,12 +62,23 @@ impl Codegen<&koopa::ir::FunctionData> {
     ) -> Result<riscv::Function> {
         // Register allocation.
         let regs = analyzer.analyze_register_alloc(func)?;
+        // Dominators tree.
+        let dominators = analyzer.analyze_dominators(func);
 
         // Function builder.
         let name = &self.0.name()[1..];
-        let func = riscv::Function::new(name.to_string());
-        let mut func = FunctionBuilder::new(func);
+        let mut func = riscv::Function::new(name.to_string());
         let dfg = self.0.dfg();
+        let bbs = self.0.layout().bbs();
+
+        // Basic blocks map.
+        let bb_map: HashMap<_, _> = bbs
+            .keys()
+            .map(|&bb| {
+                let id = BlockId::next_id();
+                (bb, id)
+            })
+            .collect();
 
         // Prologue.
         let frame_size = regs.frame_size();
@@ -83,8 +96,13 @@ impl Codegen<&koopa::ir::FunctionData> {
         };
 
         // Generate code for the instruction.
-        for (&bb, node) in self.0.layout().bbs() {
-            let label = self.0.dfg().bb(bb).name().clone();
+        for bb in dominators.iter() {
+            let node = bbs.node(&bb).unwrap();
+            let id = bb_map[&bb];
+            if let Some(label) = dfg.bb(bb).name() {
+                id.set_label(label.clone());
+            }
+
             let mut block = BlockBuilder::new(Block::new(), opt_level);
             if self.0.layout().entry_bb() == Some(bb) {
                 if let Some(prologue) = prologue {
@@ -92,17 +110,17 @@ impl Codegen<&koopa::ir::FunctionData> {
                 }
             }
             for &inst in node.insts().keys() {
-                Codegen(inst).generate(&mut block, dfg, &regs, epilogue)?;
+                Codegen(inst).generate(&mut block, dfg, &bb_map, &regs, epilogue)?;
             }
             let mut block = block.build();
 
             // peephole optimization.
             peephole::optimize(&mut block, opt_level);
 
-            func.push(label, bb, block);
+            func.push(id, block);
         }
 
-        Ok(func.build())
+        Ok(func)
     }
 }
 
@@ -132,6 +150,7 @@ impl Codegen<koopa::ir::entities::Value> {
         self,
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
+        bb_map: &HashMap<BasicBlock, BlockId>,
         regs: &RegAlloc,
         epilogue: Option<Inst>,
     ) -> Result<()> {
@@ -230,10 +249,17 @@ impl Codegen<koopa::ir::entities::Value> {
                 Ok(())
             }
             ValueKind::Branch(branch) => {
-                let _cond = Codegen(branch.cond()).load_value(block, dfg, regs, RegId::A0)?;
-                let _then = branch.true_bb();
-                let _els = branch.false_bb();
-                todo!()
+                let cond = Codegen(branch.cond()).load_value(block, dfg, regs, RegId::A0)?;
+                let then = bb_map[&branch.true_bb()];
+                let els = bb_map[&branch.false_bb()];
+                block.push(Inst::Beqz(cond, els));
+                block.push(Inst::J(then));
+                Ok(())
+            }
+            ValueKind::Jump(jump) => {
+                let target = bb_map[&jump.target()];
+                block.push(Inst::J(target));
+                Ok(())
             }
             _ => panic!("unexpected value kind: {:?}", dfg.value(self.0).kind()),
         }

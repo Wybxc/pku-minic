@@ -4,6 +4,8 @@ use std::{collections::HashMap, rc::Rc};
 
 use koopa::ir::{Function, Program};
 use miette::Result;
+#[allow(unused_imports)]
+use nolog::*;
 
 use crate::{
     analysis::{
@@ -50,6 +52,7 @@ impl<'a> Analyzer<'a> {
         self.cfg_cache
             .entry(func)
             .or_insert_with(|| {
+                trace!(->[0] "MGR " => "Analyzing CFG of {:?}", func);
                 let cfg = ControlFlowGraph::analyze(self.program.func(func));
                 Rc::new(cfg)
             })
@@ -65,6 +68,7 @@ impl<'a> Analyzer<'a> {
         self.dominators_cache
             .entry(func)
             .or_insert_with(|| {
+                trace!(->[0] "MGR " => "Analyzing dominators of {:?}", func);
                 let dominators = Dominators::analyze(cfg.as_ref());
                 Rc::new(dominators)
             })
@@ -80,6 +84,7 @@ impl<'a> Analyzer<'a> {
         self.liveliness_cache
             .entry(func)
             .or_insert_with(|| {
+                trace!(->[0] "MGR " => "Analyzing liveliness of {:?}", func);
                 let liveliness = Liveliness::analysis(cfg.as_ref(), self.program.func(func));
                 Rc::new(liveliness)
             })
@@ -90,6 +95,7 @@ impl<'a> Analyzer<'a> {
     ///
     /// Note: this analysis does not have a cache.
     pub fn analyze_register_alloc(&mut self, func: Function) -> Result<RegAlloc> {
+        trace!(->[0] "MGR " => "Analyzing register allocation of {:?}", func);
         let liveliness = self.analyze_liveliness(func);
         let dominators = self.analyze_dominators(func);
         RegAlloc::analyze(
