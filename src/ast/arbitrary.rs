@@ -162,7 +162,7 @@ impl Strategy for BlockStrategy {
         while insts < self.max_insts {
             let mut weights = [
                 1, // const decl
-                2, // var decl
+                3, // var decl
                 5, // stmt
                 2, // block
                 2, // if
@@ -481,7 +481,7 @@ fn arb_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
         .boxed()
     } else {
         prop_oneof![
-            10 => s_expr,
+            20 => s_expr,
             1 => s_return,
         ]
         .boxed()
