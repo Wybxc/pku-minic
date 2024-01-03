@@ -151,8 +151,7 @@ fn main() -> Result<()> {
             let (program, metadata) =
                 pku_minic::compile(&input, opt_level).with_source_code(input.clone())?;
             // Generate code
-            let program =
-                pku_minic::codegen(program, &metadata, opt_level).with_source_code(input)?;
+            let program = pku_minic::codegen(program, &metadata).with_source_code(input)?;
             write!(args.output, "{}", program).into_diagnostic()?;
         }
     }

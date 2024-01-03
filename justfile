@@ -31,7 +31,7 @@ trace:
 
 llvm args="":
     clang -S -emit-llvm {{test_c}} -O0 -Xclang -disable-O0-optnone --target=riscv32-unknown-unknown
-    opt -S -mem2reg {{test_llvm}} -o {{test_llvm}}
+    opt -S -p=mem2reg {{test_llvm}} -o {{test_llvm}}
     llc {{test_llvm}} -o {{test_llvm_riscv}} -O0 --frame-pointer=none -march=riscv32 -mattr=+m,+relax {{args}}
     cat {{test_llvm_riscv}}
 

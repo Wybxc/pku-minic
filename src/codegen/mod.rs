@@ -18,7 +18,6 @@ use miette::Result;
 mod builder;
 pub mod error;
 pub mod imm;
-mod peephole;
 pub mod riscv;
 #[cfg(any(test, feature = "proptest"))]
 pub mod simulate;
@@ -41,11 +40,11 @@ pub struct Codegen<T>(pub T);
 
 impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, analyzer: &mut Analyzer, opt_level: u8) -> Result<riscv::Program> {
+    pub fn generate(self, analyzer: &mut Analyzer) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            let func = Codegen(func_data).generate(analyzer, func, opt_level)?;
+            let func = Codegen(func_data).generate(analyzer, func)?;
             program.push(func);
         }
         Ok(program)
@@ -54,12 +53,7 @@ impl Codegen<&koopa::ir::Program> {
 
 impl Codegen<&koopa::ir::FunctionData> {
     /// Generate code from Koopa IR.
-    pub fn generate(
-        self,
-        analyzer: &mut Analyzer,
-        func: Function,
-        opt_level: u8,
-    ) -> Result<riscv::Function> {
+    pub fn generate(self, analyzer: &mut Analyzer, func: Function) -> Result<riscv::Function> {
         // Register allocation.
         let regs = analyzer.analyze_register_alloc(func)?;
         // Dominators tree.
@@ -103,7 +97,7 @@ impl Codegen<&koopa::ir::FunctionData> {
                 id.set_label(label.clone());
             }
 
-            let mut block = BlockBuilder::new(Block::new(), opt_level);
+            let mut block = BlockBuilder::new(Block::new());
             if self.0.layout().entry_bb() == Some(bb) {
                 if let Some(prologue) = prologue {
                     block.push(prologue);
@@ -112,10 +106,10 @@ impl Codegen<&koopa::ir::FunctionData> {
             for &inst in node.insts().keys() {
                 Codegen(inst).generate(&mut block, dfg, &bb_map, &regs, epilogue)?;
             }
-            let mut block = block.build();
+            let block = block.build();
 
-            // peephole optimization.
-            peephole::optimize(&mut block, opt_level);
+            // // peephole optimization.
+            // peephole::optimize(&mut block, opt_level);
 
             func.push(id, block);
         }
@@ -339,39 +333,41 @@ impl Codegen<&koopa::ir::entities::ValueData> {
         Ok(())
     }
 
-    fn is_const(&self) -> bool { utils::is_const(self.0) }
-}
-
-#[cfg(test)]
-mod test {
-    use proptest::prelude::*;
-
-    use super::*;
-    use crate::ast;
-
-    proptest! {
-        #[test]
-        fn opt_correct(
-            regs in simulate::Regs::arbitrary(),
-            program in ast::arbitrary::arb_comp_unit().prop_map(ast::display::Displayable),
-        ) {
-            let (program, meta) = program.0.build_ir().unwrap();
-            let mut analyzer = Analyzer::new(&program, &meta);
-            let program_o0 = Codegen(&program).generate(&mut analyzer, 0).unwrap();
-            let program_o1 = Codegen(&program).generate(&mut analyzer, 1).unwrap();
-
-            let mut regs1 = regs.clone();
-            let mut mem1 = simulate::Memory::new();
-            simulate::simulate(&program_o0, &mut regs1, &mut mem1);
-            simulate::erase_temp_regs(&mut regs1);
-
-            let mut regs2 = regs.clone();
-            let mut mem2 = simulate::Memory::new();
-            simulate::simulate(&program_o1, &mut regs2, &mut mem2);
-            simulate::erase_temp_regs(&mut regs2);
-
-            assert_eq!(regs1, regs2);
-            assert_eq!(mem1, mem2);
-        }
+    fn is_const(&self) -> bool {
+        utils::is_const(self.0)
     }
 }
+
+// #[cfg(test)]
+// mod test {
+//     use proptest::prelude::*;
+
+//     use super::*;
+//     use crate::ast;
+
+//     proptest! {
+//         #[test]
+//         fn opt_correct(
+//             regs in simulate::Regs::arbitrary(),
+//             program in ast::arbitrary::arb_comp_unit().prop_map(ast::display::Displayable),
+//         ) {
+//             let (program, meta) = program.0.build_ir().unwrap();
+//             let mut analyzer = Analyzer::new(&program, &meta);
+//             let program_o0 = Codegen(&program).generate(&mut analyzer, 0).unwrap();
+//             let program_o1 = Codegen(&program).generate(&mut analyzer, 1).unwrap();
+
+//             let mut regs1 = regs.clone();
+//             let mut mem1 = simulate::Memory::new();
+//             simulate::simulate(&program_o0, &mut regs1, &mut mem1);
+//             simulate::erase_temp_regs(&mut regs1);
+
+//             let mut regs2 = regs.clone();
+//             let mut mem2 = simulate::Memory::new();
+//             simulate::simulate(&program_o1, &mut regs2, &mut mem2);
+//             simulate::erase_temp_regs(&mut regs2);
+
+//             assert_eq!(regs1, regs2);
+//             assert_eq!(mem1, mem2);
+//         }
+//     }
+// }
