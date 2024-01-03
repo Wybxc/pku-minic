@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use im::HashSet;
+use imbl::HashSet;
 use koopa::ir::{dfg::DataFlowGraph, BasicBlock, FunctionData, Value, ValueKind};
 #[allow(unused_imports)]
 use nolog::*;

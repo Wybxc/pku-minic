@@ -60,7 +60,7 @@ impl NonSpanned for FuncType {}
 /// ```
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub items: im::Vector<BlockItem>,
+    pub items: imbl::Vector<BlockItem>,
 }
 
 impl NonSpanned for Block {}
@@ -127,7 +127,7 @@ impl Spanned for Decl {
 #[derive(Debug, Clone)]
 pub struct ConstDecl {
     pub ty: Span<BType>,
-    pub defs: im::Vector<ConstDef>,
+    pub defs: imbl::Vector<ConstDef>,
 }
 
 impl NonSpanned for ConstDecl {}
@@ -157,7 +157,7 @@ impl Spanned for ConstDef {
 #[derive(Debug, Clone)]
 pub struct VarDecl {
     pub ty: Span<BType>,
-    pub defs: im::Vector<VarDef>,
+    pub defs: imbl::Vector<VarDef>,
 }
 
 impl NonSpanned for VarDecl {}

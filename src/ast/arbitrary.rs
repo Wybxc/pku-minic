@@ -14,8 +14,8 @@ use super::*;
 #[derive(Debug, Clone, Default)]
 struct LocalEnv {
     pub prev: Option<Box<LocalEnv>>,
-    consts: im::HashSet<String>,
-    vars: im::HashSet<String>,
+    consts: imbl::HashSet<String>,
+    vars: imbl::HashSet<String>,
 }
 
 impl LocalEnv {
@@ -418,7 +418,7 @@ impl ValueTree for BlockItemValueTree {
 fn arb_const_decl(name: String, local: LocalEnv) -> impl Strategy<Value = ConstDecl> {
     (arb_btype(), arb_const_def(name, local.clone())).prop_map(move |(ty, def)| ConstDecl {
         ty: ty.into_span(0, 0),
-        defs: im::vector![def],
+        defs: imbl::vector![def],
     })
 }
 
@@ -435,7 +435,7 @@ fn arb_const_def(name: String, local: LocalEnv) -> impl Strategy<Value = ConstDe
 fn arb_var_decl(name: String, local: LocalEnv) -> impl Strategy<Value = VarDecl> {
     (arb_btype(), arb_var_def(name, local.clone())).prop_map(move |(ty, def)| VarDecl {
         ty: ty.into_span(0, 0),
-        defs: im::vector![def],
+        defs: imbl::vector![def],
     })
 }
 
