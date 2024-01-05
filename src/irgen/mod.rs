@@ -25,15 +25,21 @@ use symtable::{Symbol, SymbolTable};
 pub struct Terminated(bool);
 
 impl From<bool> for Terminated {
-    fn from(terminated: bool) -> Self { Terminated(terminated) }
+    fn from(terminated: bool) -> Self {
+        Terminated(terminated)
+    }
 }
 
 impl Terminated {
     /// Create a new `Terminated` with the given value.
-    pub fn new(b: bool) -> Self { Self(b) }
+    pub fn new(b: bool) -> Self {
+        Self(b)
+    }
 
     /// Whether the current basic block is terminated.
-    pub fn is_terminated(&self) -> bool { self.0 }
+    pub fn is_terminated(&self) -> bool {
+        self.0
+    }
 }
 
 impl ast::CompUnit {
@@ -332,69 +338,105 @@ impl ast::Expr {
                 }
             }
             ast::Expr::Binary { op, lhs, rhs } => {
-                let lhs = lhs.build_ir_in(symtable, layout)?;
-                let rhs = rhs.build_ir_in(symtable, layout)?;
-                let dfg = layout.dfg_mut();
                 match op.node {
-                    ast::BinaryOp::Add => {
-                        let add = dfg.new_value().binary(BinaryOp::Add, lhs, rhs);
-                        layout.push_inst(add)
-                    }
-                    ast::BinaryOp::Sub => {
-                        let sub = dfg.new_value().binary(BinaryOp::Sub, lhs, rhs);
-                        layout.push_inst(sub)
-                    }
-                    ast::BinaryOp::Mul => {
-                        let mul = dfg.new_value().binary(BinaryOp::Mul, lhs, rhs);
-                        layout.push_inst(mul)
-                    }
-                    ast::BinaryOp::Div => {
-                        let div = dfg.new_value().binary(BinaryOp::Div, lhs, rhs);
-                        layout.push_inst(div)
-                    }
-                    ast::BinaryOp::Mod => {
-                        let rem = dfg.new_value().binary(BinaryOp::Mod, lhs, rhs);
-                        layout.push_inst(rem)
-                    }
-                    ast::BinaryOp::Eq => {
-                        let eq = dfg.new_value().binary(BinaryOp::Eq, lhs, rhs);
-                        layout.push_inst(eq)
-                    }
-                    ast::BinaryOp::Ne => {
-                        let not_eq = dfg.new_value().binary(BinaryOp::NotEq, lhs, rhs);
-                        layout.push_inst(not_eq)
-                    }
-                    ast::BinaryOp::Lt => {
-                        let lt = dfg.new_value().binary(BinaryOp::Lt, lhs, rhs);
-                        layout.push_inst(lt)
-                    }
-                    ast::BinaryOp::Le => {
-                        let lt_eq = dfg.new_value().binary(BinaryOp::Le, lhs, rhs);
-                        layout.push_inst(lt_eq)
-                    }
-                    ast::BinaryOp::Gt => {
-                        let gt = dfg.new_value().binary(BinaryOp::Gt, lhs, rhs);
-                        layout.push_inst(gt)
-                    }
-                    ast::BinaryOp::Ge => {
-                        let gt_eq = dfg.new_value().binary(BinaryOp::Ge, lhs, rhs);
-                        layout.push_inst(gt_eq)
-                    }
                     ast::BinaryOp::LAnd => {
+                        let lhs = lhs.build_ir_in(symtable, layout)?;
                         let dfg = layout.dfg_mut();
                         let zero = dfg.new_value().integer(0);
                         let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
-                        let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
-                        let and = dfg.new_value().binary(BinaryOp::And, lhs, rhs);
-                        layout.push_insts([lhs, rhs, and])
+
+                        // short-circuit
+                        let result = dfg.new_value().alloc(Type::get_i32());
+                        let true_bb = layout.new_bb(None);
+                        let false_bb = layout.new_bb(None);
+                        let next_bb = layout.new_bb(None);
+
+                        let branch = layout.dfg_mut().new_value().branch(lhs, true_bb, false_bb);
+                        layout.push_insts([lhs, result, branch]);
+
+                        layout.with_bb(true_bb, |layout| {
+                            let rhs = rhs.build_ir_in(symtable, layout)?;
+                            let dfg = layout.dfg_mut();
+                            let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
+                            let store = dfg.new_value().store(rhs, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([rhs, store, jump]);
+                            Ok(())
+                        })?;
+
+                        layout.with_bb(false_bb, |layout| {
+                            let dfg = layout.dfg_mut();
+                            let store = dfg.new_value().store(zero, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([store, jump]);
+                            Ok(())
+                        })?;
+
+                        // Safety: `next_bb` is empty, and `branch` is the last instruction.
+                        layout.switch_bb(next_bb);
+
+                        let result = layout.dfg_mut().new_value().load(result);
+                        layout.push_inst(result)
                     }
                     ast::BinaryOp::LOr => {
+                        let lhs = lhs.build_ir_in(symtable, layout)?;
                         let dfg = layout.dfg_mut();
                         let zero = dfg.new_value().integer(0);
                         let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
-                        let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
-                        let or = dfg.new_value().binary(BinaryOp::Or, lhs, rhs);
-                        layout.push_insts([lhs, rhs, or])
+
+                        // short-circuit
+                        let result = dfg.new_value().alloc(Type::get_i32());
+                        let true_bb = layout.new_bb(None);
+                        let false_bb = layout.new_bb(None);
+                        let next_bb = layout.new_bb(None);
+
+                        let branch = layout.dfg_mut().new_value().branch(lhs, true_bb, false_bb);
+                        layout.push_insts([lhs, result, branch]);
+
+                        layout.with_bb(true_bb, |layout| {
+                            let dfg = layout.dfg_mut();
+                            let store = dfg.new_value().store(lhs, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([store, jump]);
+                            Ok(())
+                        })?;
+
+                        layout.with_bb(false_bb, |layout| {
+                            let rhs = rhs.build_ir_in(symtable, layout)?;
+                            let dfg = layout.dfg_mut();
+                            let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
+                            let store = dfg.new_value().store(rhs, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([rhs, store, jump]);
+                            Ok(())
+                        })?;
+
+                        // Safety: `next_bb` is empty, and `branch` is the last instruction.
+                        layout.switch_bb(next_bb);
+
+                        let result = layout.dfg_mut().new_value().load(result);
+                        layout.push_inst(result)
+                    }
+                    _ => {
+                        let lhs = lhs.build_ir_in(symtable, layout)?;
+                        let rhs = rhs.build_ir_in(symtable, layout)?;
+                        let dfg = layout.dfg_mut();
+                        let op = match op.node {
+                            ast::BinaryOp::Add => BinaryOp::Add,
+                            ast::BinaryOp::Sub => BinaryOp::Sub,
+                            ast::BinaryOp::Mul => BinaryOp::Mul,
+                            ast::BinaryOp::Div => BinaryOp::Div,
+                            ast::BinaryOp::Mod => BinaryOp::Mod,
+                            ast::BinaryOp::Eq => BinaryOp::Eq,
+                            ast::BinaryOp::Ne => BinaryOp::NotEq,
+                            ast::BinaryOp::Lt => BinaryOp::Lt,
+                            ast::BinaryOp::Le => BinaryOp::Le,
+                            ast::BinaryOp::Gt => BinaryOp::Gt,
+                            ast::BinaryOp::Ge => BinaryOp::Ge,
+                            ast::BinaryOp::LAnd | ast::BinaryOp::LOr => unreachable!(),
+                        };
+                        let inst = dfg.new_value().binary(op, lhs, rhs);
+                        layout.push_inst(inst)
                     }
                 }
             }
@@ -477,7 +519,7 @@ mod test {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::utils::*;
+    use crate::{analysis::Analyzer, utils::*};
 
     proptest! {
         #[test]
@@ -485,13 +527,16 @@ mod test {
             program in ast::arbitrary::arb_comp_unit()
                 .prop_map(ast::display::Displayable)
         ) {
-            let (program, _) = program.0.build_ir().unwrap();
-            for func in program.funcs().values() {
+            let (program, metadata) = program.0.build_ir().unwrap();
+            let mut analyzer = Analyzer::new(&program, &metadata);
+            for (&func, func_data) in program.funcs() {
+                let dominators = analyzer.analyze_dominators(func);
                 let mut defined = HashSet::new();
-                for (_, block) in func.layout().bbs() {
+                for bb in dominators.iter() {
+                    let block = func_data.layout().bbs().node(&bb).expect("bb not found");
                     for &inst in block.insts().keys() {
-                        for value in func.dfg().value(inst).kind().value_uses() {
-                            if !is_const(func.dfg().value(value)) {
+                        for value in func_data.dfg().value(inst).kind().value_uses() {
+                            if !is_const(func_data.dfg().value(value)) {
                                 assert!(
                                     defined.contains(&value),
                                     "variable {:?} is used before defined",
