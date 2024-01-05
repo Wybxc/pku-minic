@@ -82,7 +82,12 @@ pub fn ident_inst(inst: Value, dfg: &DataFlowGraph) -> String {
             let name = match value.kind() {
                 ValueKind::Integer(i) => format!("{}", i.value()),
                 ValueKind::ZeroInit(_) => "0".to_string(),
-                _ => format!("%{}", NEXT_ID.replace(NEXT_ID.get() + 1)),
+                // _ => format!("%{}", NEXT_ID.replace(NEXT_ID.get() + 1)),
+                _ => NEXT_ID.with(|id| {
+                    let id_val = id.get();
+                    id.set(id_val + 1);
+                    format!("%{}", id_val)
+                }),
             };
             map.insert(inst, name.clone());
             name
