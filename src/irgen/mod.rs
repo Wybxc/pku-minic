@@ -61,7 +61,12 @@ impl ast::CompUnit {
         program: &mut Program,
         metadata: &mut ProgramMetadata,
     ) -> Result<()> {
-        self.func_def.build_ir_in(symtable, program, metadata)
+        self.func_defs
+            .into_iter()
+            .next()
+            .unwrap()
+            .build_ir_in(symtable, program, metadata)?;
+        todo!()
     }
 }
 
@@ -101,6 +106,7 @@ impl ast::FuncType {
     pub fn build_ir(self) -> Type {
         match self {
             ast::FuncType::Int => Type::get_i32(),
+            _ => todo!(),
         }
     }
 
@@ -108,6 +114,7 @@ impl ast::FuncType {
     pub fn default_value(self, dfg: &mut DataFlowGraph) -> Value {
         match self {
             ast::FuncType::Int => dfg.new_value().integer(0),
+            _ => todo!(),
         }
     }
 }
@@ -535,6 +542,7 @@ impl ast::Expr {
                     }
                 }
             }
+            ast::Expr::Call(_) => todo!("function call"),
         })
     }
 
@@ -579,6 +587,7 @@ impl ast::Expr {
                     Symbol::Var(_) => Err(CompileError::NonConstantExpression { span })?,
                 }
             }
+            ast::Expr::Call(_) => todo!("function call"),
         })
     }
 }

@@ -6,7 +6,10 @@ use super::*;
 
 impl Display for CompUnit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.func_def)
+        for func in &self.func_defs {
+            writeln!(f, "{}\n", func)?;
+        }
+        Ok(())
     }
 }
 
@@ -20,6 +23,7 @@ impl Display for FuncType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FuncType::Int => write!(f, "int"),
+            FuncType::Void => write!(f, "void"),
         }
     }
 }
@@ -159,7 +163,7 @@ impl Display for Stmt {
 impl Expr {
     fn precedence(&self) -> u32 {
         match self {
-            Expr::Number(_) | Expr::LVar(_) => 0,
+            Expr::Number(_) | Expr::LVar(_) | Expr::Call(_) => 0,
             Expr::Unary { .. } => 1,
             Expr::Binary { op, .. } => match op.node {
                 BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => 2,
@@ -180,6 +184,7 @@ impl Expr {
         match self {
             Expr::Number(expr) => write!(f, "{}", expr),
             Expr::LVar(ident) => write!(f, "{}", ident),
+            Expr::Call(call) => write!(f, "{}", call),
             Expr::Unary { op, expr } => {
                 write!(f, "{}", op)?;
                 match op.node {
@@ -206,6 +211,19 @@ impl Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_with_prec(f, 15)
+    }
+}
+
+impl Display for CallExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(", self.ident)?;
+        for (i, arg) in self.args.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg)?;
+        }
+        write!(f, ")")
     }
 }
 

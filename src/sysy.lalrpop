@@ -14,17 +14,36 @@ match {
 
 // Syntax rules
 
-pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
+pub CompUnit: CompUnit = <func_defs: FuncDef*> => CompUnit { func_defs: func_defs.into() };
 
 FuncDef: FuncDef = {
-  <func_type: FuncType> <ident: Ident> "(" ")" <block: Block> => {
-    FuncDef { func_type, ident, block }
+  <func_type: FuncType> <ident: Ident> "(" <params: FuncParams?> ")" <block: Block> => {
+    let params = params.unwrap_or_default();
+    FuncDef { func_type, ident, params: params.into(), block }
   }
-}
+};
 
-FuncType: Span<FuncType> = <start:@L> "int" <end:@R> => FuncType::Int.into_span(start, end);
+FuncType: Span<FuncType> = {
+  <start:@L> "int" <end:@R> => FuncType::Int.into_span(start, end),
+  <start:@L> "void" <end:@R> => FuncType::Void.into_span(start, end),
+};
 
-Block: Span<Block> = <start:@L> "{" <items: BlockItem*> "}" <end:@R> => Block { items: items.into() }.into_span(start, end);
+FuncParams: Vec<FuncParam> = {
+  <param: FuncParam> => vec![param],
+  <params: FuncParams> "," <param: FuncParam> => {
+    let mut params = params;
+    params.push(param);
+    params
+  },
+};
+
+FuncParam: FuncParam = {
+  <ty: BType> <ident: Ident> => FuncParam { ty, ident },
+};
+
+Block: Span<Block> = <start:@L> "{" <items: BlockItem*> "}" <end:@R> => {
+  Block { items: items.into() }.into_span(start, end) 
+};
 
 BlockItem: BlockItem = {
   <stmt: Stmt> => BlockItem::Stmt { <> },
@@ -114,6 +133,7 @@ PrimaryExpr: Expr = {
 UnaryExpr: Expr = {
   <expr: PrimaryExpr> => <>,
   <op: UnaryOp> <expr: UnaryExpr> => Expr::Unary { op, expr: Box::new(expr) },
+  <call: CallExpr> => Expr::Call(call),
 };
 
 UnaryOp: Span<UnaryOp> = {
@@ -197,6 +217,22 @@ LOrExpr: Expr = {
     rhs: Box::new(rhs),
   },
   <expr: LAndExpr> => <>,
+};
+
+CallExpr: Span<CallExpr> = {
+  <start:@L> <ident: Ident> "(" <args: FuncArgs?> ")" <end:@R> => {
+    let args = args.unwrap_or_default();
+    CallExpr { ident, args: args.into() }.into_span(start, end)
+  },
+};
+
+FuncArgs: Vec<Expr> = {
+  <expr: Expr> => vec![expr],
+  <args: FuncArgs> "," <expr: Expr> => {
+    let mut args = args;
+    args.push(expr);
+    args
+  },
 };
 
 Number: Span<i32> = <start:@L> <num: IntConst> <end:@R> => num.into_span(start, end);

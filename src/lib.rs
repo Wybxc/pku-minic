@@ -9,7 +9,10 @@ pub mod codegen;
 pub mod irgen;
 pub(crate) mod utils;
 
-lalrpop_mod!(sysy);
+lalrpop_mod!(
+    #[allow(clippy::useless_conversion)]
+    sysy
+);
 
 use miette::{Diagnostic, Result, SourceSpan};
 use thiserror::Error;
