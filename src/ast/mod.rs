@@ -3,8 +3,6 @@
 
 use std::ops::Range;
 
-#[cfg(any(test, feature = "proptest"))]
-pub mod arbitrary;
 pub(crate) mod display;
 
 /// Compilation Unit

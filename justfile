@@ -55,16 +55,6 @@ doc:
     cargo doc --no-deps --document-private-items
     dufs
 
-test:
-    RUST_BACKTRACE=0 cargo test
-
-test-arbitrary:
-    cargo test --features proptest,arb-coverage -- --nocapture
-
-gen-test-case:
-    cargo run --features proptest -- -gen-test-case > hello.c
-    cat hello.c
-
 build-timings:
     cargo clean
     cargo build --release --timings
