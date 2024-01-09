@@ -78,6 +78,7 @@ impl ast::FuncDef {
         program: &mut Program,
         prog_metadata: &mut ProgramMetadata,
     ) -> Result<()> {
+        let span = self.ident.span().into();
         let metadata = FunctionMetadata::new(self.ident.clone());
         let kp_name = format!("@{}", self.ident.node);
         let params = self.params.iter().map(|p| p.build_ir()).collect();
@@ -86,7 +87,12 @@ impl ast::FuncDef {
         prog_metadata.functions.insert(func, metadata);
 
         // add function to global symbol table
-        symtable.insert_var(self.ident.node, Symbol::Func(func));
+        if symtable
+            .insert_var(self.ident.node, Symbol::Func(func))
+            .is_some()
+        {
+            Err(CompileError::FunctionDefinedTwice { span })?;
+        }
 
         let mut context = Context::new();
         let mut layout = LayoutBuilder::new(program.func_mut(func), self.func_type.node);
@@ -95,13 +101,16 @@ impl ast::FuncDef {
         symtable.push();
         let params = layout.params().to_vec();
         for (value, param) in params.into_iter().zip(self.params) {
+            let span = param.ident.span().into();
             let dfg = layout.dfg_mut();
             let name = param.ident.node;
             let ty = dfg.value(value).ty().clone();
             let var = dfg.new_value().alloc(ty);
             dfg.set_value_name(var, Some(format!("%{}", name)));
             layout.push_inst(var);
-            symtable.insert_var(name, Symbol::Var(var));
+            if symtable.insert_var(name, Symbol::Var(var)).is_some() {
+                Err(CompileError::DuplicateParameter { span })?;
+            }
         }
 
         let terminated = self
@@ -216,8 +225,14 @@ impl ast::ConstDecl {
 impl ast::ConstDef {
     /// Build IR from AST in an existing IR node.
     pub fn build_ir_in(self, symtable: &mut SymbolTable) -> Result<()> {
+        let span = self.ident.span().into();
         let expr = self.expr.const_eval(symtable)?;
-        symtable.insert_var(self.ident.node, Symbol::Const(expr));
+        if symtable
+            .insert_var(self.ident.node, Symbol::Const(expr))
+            .is_some()
+        {
+            Err(CompileError::VariableDefinedTwice { span })?;
+        }
         Ok(())
     }
 }
@@ -249,6 +264,7 @@ impl ast::VarDef {
         layout: &mut LayoutBuilder,
     ) -> Result<()> {
         // Allocate a new variable.
+        let span = self.ident.span().into();
         let dfg = layout.dfg_mut();
         let var = dfg.new_value().alloc(ty.build_ir());
         dfg.set_value_name(var, Some(format!("@{}", self.ident.node)));
@@ -262,7 +278,12 @@ impl ast::VarDef {
         }
 
         // Insert the variable into the symbol table.
-        symtable.insert_var(self.ident.node, Symbol::Var(var));
+        if symtable
+            .insert_var(self.ident.node, Symbol::Var(var))
+            .is_some()
+        {
+            Err(CompileError::VariableDefinedTwice { span })?;
+        }
 
         Ok(())
     }

@@ -23,6 +23,14 @@ pub enum CompileError {
         span: SourceSpan,
     },
 
+    /// variable defined twice
+    #[error("variable defined twice")]
+    #[diagnostic(code(minic::var_defined_twice))]
+    VariableDefinedTwice {
+        #[label("defined twice")]
+        span: SourceSpan,
+    },
+
     /// cannot assign to constant
     #[error("cannot assign to constant")]
     #[diagnostic(code(minic::assign_to_const))]
@@ -44,6 +52,22 @@ pub enum CompileError {
     #[diagnostic(code(minic::continue_not_in_loop))]
     ContinueNotInLoop {
         #[label("continue statement not within a loop")]
+        span: SourceSpan,
+    },
+
+    /// function defined twice
+    #[error("function defined twice")]
+    #[diagnostic(code(minic::func_defined_twice))]
+    FunctionDefinedTwice {
+        #[label("defined twice")]
+        span: SourceSpan,
+    },
+
+    /// duplicate parameter name
+    #[error("duplicate parameter name")]
+    #[diagnostic(code(minic::duplicate_param))]
+    DuplicateParameter {
+        #[label("duplicate parameter name")]
         span: SourceSpan,
     },
 
