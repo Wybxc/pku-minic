@@ -3,7 +3,7 @@
 //! This module contains types for representing RISC-V instructions and
 //! programs.
 
-use std::{cell::RefCell, collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display};
 
 use key_node_list::{impl_node, KeyNodeList};
 
@@ -108,13 +108,19 @@ pub(crate) use make_reg_set;
 
 impl<const MASK: u32> RegSet<MASK> {
     /// Create a new empty register set.
-    pub const fn new() -> Self { Self { bitset: 0 } }
+    pub const fn new() -> Self {
+        Self { bitset: 0 }
+    }
 
     /// Create a register set from a bitset.
-    pub const fn from_bitset(bitset: u32) -> Self { Self { bitset } }
+    pub const fn from_bitset(bitset: u32) -> Self {
+        Self { bitset }
+    }
 
     /// Create a full register set.
-    pub const fn full() -> Self { Self { bitset: MASK } }
+    pub const fn full() -> Self {
+        Self { bitset: MASK }
+    }
 
     /// Insert a register into the set.
     pub fn insert(&mut self, reg: RegId) {
@@ -123,10 +129,14 @@ impl<const MASK: u32> RegSet<MASK> {
     }
 
     /// Remove a register from the set.
-    pub fn remove(&mut self, reg: RegId) { self.bitset &= !(1 << reg as u32); }
+    pub fn remove(&mut self, reg: RegId) {
+        self.bitset &= !(1 << reg as u32);
+    }
 
     /// Check if the set contains a register.
-    pub fn contains(&self, reg: RegId) -> bool { self.bitset & (1 << reg as u32) != 0 }
+    pub fn contains(&self, reg: RegId) -> bool {
+        self.bitset & (1 << reg as u32) != 0
+    }
 
     /// Get an iterator over the registers in the set.
     pub fn iter(&self) -> impl Iterator<Item = RegId> + '_ {
@@ -425,7 +435,9 @@ impl Inst {
     }
 
     /// Get the source registers of the instruction.
-    pub fn source(mut self) -> [Option<RegId>; 2] { self.source_mut().map(|r| r.copied()) }
+    pub fn source(mut self) -> [Option<RegId>; 2] {
+        self.source_mut().map(|r| r.copied())
+    }
 
     /// Get the mutable source registers of the instruction.
     pub fn source_mut(&mut self) -> [Option<&mut RegId>; 2] {
@@ -548,16 +560,24 @@ impl Block {
     }
 
     /// The number of instructions in the basic block.
-    pub fn len(&self) -> usize { self.instructions.len() }
+    pub fn len(&self) -> usize {
+        self.instructions.len()
+    }
 
     /// Check if the basic block is empty.
-    pub fn is_empty(&self) -> bool { self.instructions.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
+    }
 
     /// The first instruction id in the basic block.
-    pub fn front(&self) -> Option<InstId> { self.instructions.front_key().copied() }
+    pub fn front(&self) -> Option<InstId> {
+        self.instructions.front_key().copied()
+    }
 
     /// The last instruction id in the basic block.
-    pub fn back(&self) -> Option<InstId> { self.instructions.back_key().copied() }
+    pub fn back(&self) -> Option<InstId> {
+        self.instructions.back_key().copied()
+    }
 
     /// Provide a cursor with mutable access to the instruction with the given
     /// id.
@@ -574,7 +594,9 @@ impl Block {
 }
 
 impl Default for Block {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Display for Block {
@@ -593,13 +615,19 @@ pub struct InstCursorMut<'a> {
 
 impl<'a> InstCursorMut<'a> {
     /// Check if the cursor is null.
-    pub fn is_null(&self) -> bool { self.cursor.is_null() }
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
 
     /// Get the instruction id.
-    pub fn id(&self) -> Option<InstId> { self.cursor.key().cloned() }
+    pub fn id(&self) -> Option<InstId> {
+        self.cursor.key().cloned()
+    }
 
     /// Get the instruction.
-    pub fn inst(&self) -> Option<Inst> { self.cursor.node().map(|node| node.inst) }
+    pub fn inst(&self) -> Option<Inst> {
+        self.cursor.node().map(|node| node.inst)
+    }
 
     /// Set the instruction. If the cursor is null, this function does nothing.
     pub fn set_inst(&mut self, inst: Inst) {
@@ -609,10 +637,14 @@ impl<'a> InstCursorMut<'a> {
     }
 
     /// Move the cursor to the previous instruction.
-    pub fn prev(&mut self) { self.cursor.move_prev(); }
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
 
     /// Move the cursor to the next instruction.
-    pub fn next(&mut self) { self.cursor.move_next(); }
+    pub fn next(&mut self) {
+        self.cursor.move_next();
+    }
 
     /// Get an iterator over the following instructions, not including the
     /// current instruction.
@@ -642,7 +674,9 @@ impl<'a> InstCursorMut<'a> {
     /// instruction.
     ///
     /// If the cursor is null, this function does nothing.
-    pub fn remove_and_next(&mut self) { self.cursor.remove_current(); }
+    pub fn remove_and_next(&mut self) {
+        self.cursor.remove_current();
+    }
 
     /// Remove the current instruction, and move the cursor to the previous
     /// instruction.
@@ -677,35 +711,9 @@ impl Iterator for FollowInsts<'_> {
 
 utils::declare_u32_id!(BlockId);
 
-thread_local! {
-    static BLOCK_LABELS: RefCell<HashMap<BlockId, String>> = RefCell::new(HashMap::new());
-}
-
-impl BlockId {
-    /// Get the name of the block.
-    pub fn label(&self) -> Option<String> {
-        BLOCK_LABELS.with(|labels| {
-            let labels = labels.borrow();
-            labels.get(self).cloned()
-        })
-    }
-
-    /// Set the name of the block.
-    pub fn set_label(&self, name: String) {
-        BLOCK_LABELS.with(|labels| {
-            let mut labels = labels.borrow_mut();
-            labels.insert(*self, name);
-        });
-    }
-}
-
 impl Display for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(name) = self.label() {
-            write!(f, "{}", name)
-        } else {
-            write!(f, ".L{}", self.0)
-        }
+        write!(f, ".L{}", self.0)
     }
 }
 
@@ -763,10 +771,14 @@ impl Function {
     }
 
     /// Number of basic blocks in the function.
-    pub fn len(&self) -> usize { self.blocks.len() }
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
 
     /// Check if the function is empty.
-    pub fn is_empty(&self) -> bool { self.blocks.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
 
     /// Iterator over the basic blocks in the function.
     pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> + '_ {
@@ -781,13 +793,16 @@ impl Function {
     }
 
     /// The first basic block id in the function.
-    pub fn entry(&self) -> Option<BlockId> { self.blocks.front_key().copied() }
+    pub fn entry(&self) -> Option<BlockId> {
+        self.blocks.front_key().copied()
+    }
 }
 
 impl Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "    .text")?;
         writeln!(f, "    .globl {}", self.name)?;
+        writeln!(f, "{}:", self.name)?;
         for (id, block) in self.iter() {
             writeln!(f, "{}:", id)?;
             write!(f, "{}", block)?;
@@ -803,19 +818,29 @@ pub struct BlockCursor<'a> {
 
 impl<'a> BlockCursor<'a> {
     /// Check if the cursor is null.
-    pub fn is_null(&self) -> bool { self.cursor.is_null() }
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
 
     /// Get the basic block id.
-    pub fn id(&self) -> Option<BlockId> { self.cursor.key().copied() }
+    pub fn id(&self) -> Option<BlockId> {
+        self.cursor.key().copied()
+    }
 
     /// Get the basic block.
-    pub fn block(&self) -> Option<&Block> { self.cursor.node().map(|node| &node.block) }
+    pub fn block(&self) -> Option<&Block> {
+        self.cursor.node().map(|node| &node.block)
+    }
 
     /// Move the cursor to the previous basic block.
-    pub fn prev(&mut self) { self.cursor.move_prev(); }
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
 
     /// Move the cursor to the next basic block.
-    pub fn next(&mut self) { self.cursor.move_next(); }
+    pub fn next(&mut self) {
+        self.cursor.move_next();
+    }
 }
 
 /// RISC-V program.
@@ -833,11 +858,15 @@ impl Program {
     }
 
     /// Add a function to the program.
-    pub fn push(&mut self, function: Function) { self.functions.push(function); }
+    pub fn push(&mut self, function: Function) {
+        self.functions.push(function);
+    }
 }
 
 impl Default for Program {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Display for Program {

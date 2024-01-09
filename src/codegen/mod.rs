@@ -93,9 +93,9 @@ impl Codegen<&koopa::ir::FunctionData> {
         for bb in dominators.iter() {
             let node = bbs.node(&bb).unwrap();
             let id = bb_map[&bb];
-            if let Some(label) = dfg.bb(bb).name() {
-                id.set_label(label.clone());
-            }
+            // if let Some(label) = dfg.bb(bb).name() {
+            //     id.set_label(label.clone());
+            // }
 
             let mut block = BlockBuilder::new(Block::new());
             if self.0.layout().entry_bb() == Some(bb) {
