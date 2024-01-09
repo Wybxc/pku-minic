@@ -46,4 +46,36 @@ pub enum CompileError {
         #[label("continue statement not within a loop")]
         span: SourceSpan,
     },
+
+    /// cannot use function as variable
+    #[error("cannot use function as variable")]
+    #[diagnostic(code(minic::func_as_var))]
+    FuncAsVar {
+        #[label("expected variable, found function")]
+        span: SourceSpan,
+    },
+
+    /// undefined reference to function
+    #[error("undefined reference to function")]
+    #[diagnostic(code(minic::undefined_func))]
+    UndefinedFunc {
+        #[label("undefined reference to function")]
+        span: SourceSpan,
+    },
+
+    /// not a function
+    #[error("not a function")]
+    #[diagnostic(code(minic::not_a_func))]
+    ConstNotAFunction {
+        #[label("is a constant")]
+        span: SourceSpan,
+    },
+
+    /// not a function
+    #[error("not a function")]
+    #[diagnostic(code(minic::not_a_func))]
+    VarNotAFunction {
+        #[label("is a variable")]
+        span: SourceSpan,
+    },
 }

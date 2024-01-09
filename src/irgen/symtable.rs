@@ -2,12 +2,13 @@
 
 use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 
-use koopa::ir::Value;
+use koopa::ir::{Function, Value};
 
 /// Symbol, can be const or variable.
 pub enum Symbol {
     Const(i32),
     Var(Value),
+    Func(Function),
 }
 
 /// Symbol table.

@@ -50,7 +50,9 @@ impl ast::CompUnit {
         let mut symtable = SymbolTable::new();
         let mut program = Program::new();
         let mut metadata = ProgramMetadata::new();
+        symtable.push();
         self.build_ir_in(&mut symtable, &mut program, &mut metadata)?;
+        symtable.pop();
         Ok((program, metadata))
     }
 
@@ -61,12 +63,10 @@ impl ast::CompUnit {
         program: &mut Program,
         metadata: &mut ProgramMetadata,
     ) -> Result<()> {
-        self.func_defs
-            .into_iter()
-            .next()
-            .unwrap()
-            .build_ir_in(symtable, program, metadata)?;
-        todo!()
+        for func in self.func_defs {
+            func.build_ir_in(symtable, program, metadata)?;
+        }
+        Ok(())
     }
 }
 
@@ -76,19 +76,34 @@ impl ast::FuncDef {
         self,
         symtable: &mut SymbolTable,
         program: &mut Program,
-        metadata: &mut ProgramMetadata,
+        prog_metadata: &mut ProgramMetadata,
     ) -> Result<()> {
-        let func = program.new_func(FunctionData::with_param_names(
-            format!("@{}", self.ident.node),
-            vec![],
-            self.func_type.node.build_ir(),
-        ));
+        let metadata = FunctionMetadata::new(self.ident.clone());
+        let kp_name = format!("@{}", self.ident.node);
+        let params = self.params.iter().map(|p| p.build_ir()).collect();
+        let ret_type = self.func_type.node.build_ir();
+        let func = program.new_func(FunctionData::with_param_names(kp_name, params, ret_type));
+        prog_metadata.functions.insert(func, metadata);
 
-        let func_metadata = FunctionMetadata::new(self.ident);
-        metadata.functions.insert(func, func_metadata);
+        // add function to global symbol table
+        symtable.insert_var(self.ident.node, Symbol::Func(func));
 
         let mut context = Context::new();
         let mut layout = LayoutBuilder::new(program.func_mut(func), self.func_type.node);
+
+        // alloc var for parameters
+        symtable.push();
+        let params = layout.params().to_vec();
+        for (value, param) in params.into_iter().zip(self.params) {
+            let dfg = layout.dfg_mut();
+            let name = param.ident.node;
+            let ty = dfg.value(value).ty().clone();
+            let var = dfg.new_value().alloc(ty);
+            dfg.set_value_name(var, Some(format!("%{}", name)));
+            layout.push_inst(var);
+            symtable.insert_var(name, Symbol::Var(var));
+        }
+
         let terminated = self
             .block
             .node
@@ -96,6 +111,7 @@ impl ast::FuncDef {
         if !terminated.is_terminated() {
             layout.terminate_current_bb();
         }
+        symtable.pop();
 
         Ok(())
     }
@@ -106,16 +122,26 @@ impl ast::FuncType {
     pub fn build_ir(self) -> Type {
         match self {
             ast::FuncType::Int => Type::get_i32(),
-            _ => todo!(),
+            ast::FuncType::Void => Type::get_unit(),
         }
     }
 
     /// Default value of the type.
-    pub fn default_value(self, dfg: &mut DataFlowGraph) -> Value {
+    pub fn default_value(self, dfg: &mut DataFlowGraph) -> Option<Value> {
         match self {
-            ast::FuncType::Int => dfg.new_value().integer(0),
-            _ => todo!(),
+            ast::FuncType::Int => Some(dfg.new_value().integer(0)),
+            ast::FuncType::Void => None,
         }
+    }
+}
+
+impl ast::FuncParam {
+    /// Build IR from AST.
+    pub fn build_ir(&self) -> (Option<String>, Type) {
+        (
+            Some(format!("@{}", self.ident.node)),
+            self.ty.node.build_ir(),
+        )
     }
 }
 
@@ -267,6 +293,7 @@ impl ast::Stmt {
                 let var = match var {
                     Symbol::Const(_) => Err(CompileError::AssignToConst { span })?,
                     Symbol::Var(var) => *var,
+                    Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
                 };
 
                 // Compute the expression.
@@ -540,9 +567,35 @@ impl ast::Expr {
                         let load = dfg.new_value().load(*var);
                         layout.push_inst(load)
                     }
+                    Symbol::Func(_) => Err(CompileError::FuncAsVar {
+                        span: name.span().into(),
+                    })?,
                 }
             }
-            ast::Expr::Call(_) => todo!("function call"),
+            ast::Expr::Call(call) => {
+                let span = call.node.ident.span().into();
+                let func = symtable
+                    .get_var(&call.node.ident.node)
+                    .ok_or(CompileError::VariableNotFound { span })?;
+                let func = match func {
+                    Symbol::Const(_) => Err(CompileError::ConstNotAFunction { span })?,
+                    Symbol::Var(_) => Err(CompileError::VarNotAFunction { span })?,
+                    Symbol::Func(func) => *func,
+                };
+
+                let args = call
+                    .node
+                    .args
+                    .into_iter()
+                    .map(|arg| arg.build_ir_in(symtable, layout))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let dfg = layout.dfg_mut();
+                let call = dfg.new_value().call(func, args);
+                layout.push_inst(call);
+
+                call
+            }
         })
     }
 
@@ -585,9 +638,12 @@ impl ast::Expr {
                 match var {
                     Symbol::Const(num) => *num,
                     Symbol::Var(_) => Err(CompileError::NonConstantExpression { span })?,
+                    Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
                 }
             }
-            ast::Expr::Call(_) => todo!("function call"),
+            ast::Expr::Call(_) => Err(CompileError::NonConstantExpression {
+                span: self.span().into(),
+            })?,
         })
     }
 }
