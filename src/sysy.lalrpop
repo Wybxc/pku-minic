@@ -81,6 +81,12 @@ MatchedIfStmt: Span<Stmt> = {
     then: Box::new(then),
     els: Some(Box::new(els)),
   }.into_span(start, end),
+  <start:@L> "while" "(" <cond: Expr> ")" <body: MatchedIfStmt> <end:@R> => Stmt::While {
+    cond,
+    body: Box::new(body),
+  }.into_span(start, end),
+  <start:@L> "break" ";" <end:@R> => Stmt::Break(().into_span(start, end)).into_span(start, end),
+  <start:@L> "continue" ";" <end:@R> => Stmt::Continue(().into_span(start, end)).into_span(start, end),
   <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end)
 };
 

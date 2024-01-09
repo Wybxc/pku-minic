@@ -1,7 +1,7 @@
 export RUST_BACKTRACE := "1"
 
 test_c := "hello.c"
-level := "lv5"
+level := "lv7"
 
 test_koopa := replace_regex(test_c, '\.c$', ".kp")
 test_riscv := replace_regex(test_c, '\.c$', ".s")
@@ -54,16 +54,6 @@ autotest-perf:
 doc:
     cargo doc --no-deps --document-private-items
     dufs
-
-test:
-    RUST_BACKTRACE=0 cargo test
-
-test-arbitrary:
-    cargo test --features proptest,arb-coverage -- --nocapture
-
-gen-test-case:
-    cargo run --features proptest -- -gen-test-case > hello.c
-    cat hello.c
 
 build-timings:
     cargo clean

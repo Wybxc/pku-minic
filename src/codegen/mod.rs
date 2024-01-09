@@ -19,8 +19,6 @@ mod builder;
 pub mod error;
 pub mod imm;
 pub mod riscv;
-#[cfg(any(test, feature = "proptest"))]
-pub mod simulate;
 
 use builder::BlockBuilder;
 use riscv::{Inst, RegId};

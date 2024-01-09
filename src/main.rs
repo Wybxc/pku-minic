@@ -1,13 +1,6 @@
 use std::io::{Read, Write};
 
 use miette::{IntoDiagnostic, Result};
-#[allow(unused_imports)]
-use pku_minic::ast::CompUnit;
-#[cfg(feature = "proptest")]
-use proptest::{
-    strategy::{Strategy, ValueTree},
-    test_runner::TestRunner,
-};
 
 struct Args {
     mode: Mode,
@@ -58,15 +51,6 @@ _Arguments_:
             Some("-perf") => {
                 opt_level = 3;
                 Mode::Perf
-            }
-            #[cfg(feature = "proptest")]
-            Some("-gen-test-case") => {
-                // TODO: add this to help message
-                let mut runner = TestRunner::default();
-                let gen = pku_minic::ast::arbitrary::arb_comp_unit();
-                let ast: CompUnit = gen.new_tree(&mut runner).unwrap().current();
-                println!("{}", ast);
-                std::process::exit(0);
             }
             Some("-help") => {
                 // Print help message and exit
