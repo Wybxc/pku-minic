@@ -28,6 +28,5 @@ lalrpop = "0.20.0"
 default = []
 trace = ["nolog/trace", "nolog/location_hide"]
 
-[profile.profiling]
-inherits = "release"
-debug = true
+[profile.release]
+incremental = false
