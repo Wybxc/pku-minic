@@ -1,13 +1,16 @@
 //! Build IR from AST.
 
-use crate::ast::Spanned;
-use crate::irgen::layout::LayoutBuilder;
-use crate::irgen::metadata::FunctionMetadata;
-use crate::{ast, irgen::metadata::ProgramMetadata};
-use koopa::ir::builder_traits::*;
-use koopa::ir::dfg::DataFlowGraph;
-use koopa::ir::*;
+use koopa::ir::{builder_traits::*, dfg::DataFlowGraph, *};
 use miette::Result;
+
+use crate::{
+    ast,
+    ast::Spanned,
+    irgen::{
+        layout::LayoutBuilder,
+        metadata::{FunctionMetadata, ProgramMetadata},
+    },
+};
 
 mod error;
 mod layout;
@@ -15,8 +18,29 @@ pub mod metadata;
 mod symtable;
 
 use error::CompileError;
-
 use symtable::{Symbol, SymbolTable};
+
+#[must_use]
+/// Whether the current basic block is terminated.
+pub struct Terminated(bool);
+
+impl From<bool> for Terminated {
+    fn from(terminated: bool) -> Self {
+        Terminated(terminated)
+    }
+}
+
+impl Terminated {
+    /// Create a new `Terminated` with the given value.
+    pub fn new(b: bool) -> Self {
+        Self(b)
+    }
+
+    /// Whether the current basic block is terminated.
+    pub fn is_terminated(&self) -> bool {
+        self.0
+    }
+}
 
 impl ast::CompUnit {
     /// Build IR from AST.
@@ -57,8 +81,12 @@ impl ast::FuncDef {
         metadata.functions.insert(func, func_metadata);
 
         let mut layout = LayoutBuilder::new(program.func_mut(func), self.func_type.node);
+        let terminated = self.block.node.build_ir_in(symtable, &mut layout)?;
+        if !terminated.is_terminated() {
+            layout.terminate_current_bb();
+        }
 
-        self.block.node.build_ir_in(symtable, &mut layout)
+        Ok(())
     }
 }
 
@@ -80,21 +108,36 @@ impl ast::FuncType {
 
 impl ast::Block {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, layout: &mut LayoutBuilder) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<Terminated> {
+        let mut terminated = Terminated::new(false);
         symtable.push();
         for item in self.items {
-            item.build_ir_in(symtable, layout)?;
+            if terminated.is_terminated() {
+                break;
+            }
+            terminated = item.build_ir_in(symtable, layout)?;
         }
         symtable.pop();
-        Ok(())
+        Ok(terminated)
     }
 }
 
 impl ast::BlockItem {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, layout: &mut LayoutBuilder) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<Terminated> {
         match self {
-            ast::BlockItem::Decl { decl } => decl.build_ir_in(symtable, layout),
+            ast::BlockItem::Decl { decl } => {
+                decl.build_ir_in(symtable, layout)?;
+                Ok(false.into())
+            }
             ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, layout),
         }
     }
@@ -193,7 +236,11 @@ impl ast::InitVal {
 
 impl ast::Stmt {
     /// Build IR from AST in an existing IR node.
-    pub fn build_ir_in(self, symtable: &mut SymbolTable, layout: &mut LayoutBuilder) -> Result<()> {
+    pub fn build_ir_in(
+        self,
+        symtable: &mut SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<Terminated> {
         match self {
             ast::Stmt::Assign { ident, expr } => {
                 // Get the variable.
@@ -212,32 +259,64 @@ impl ast::Stmt {
                 // Store the value.
                 let store = layout.dfg_mut().new_value().store(expr, var);
                 layout.push_inst(store);
+                Ok(false.into())
             }
             ast::Stmt::Return { expr } => {
                 let expr = expr.build_ir_in(symtable, layout)?;
                 let dfg = layout.dfg_mut();
                 let ret = dfg.new_value().ret(Some(expr));
-
                 layout.push_inst(ret);
-
-                // End the current basic block.
-                layout.new_bb(None);
+                Ok(true.into())
             }
             ast::Stmt::Expr { expr } => {
                 if let Some(expr) = expr {
                     expr.build_ir_in(symtable, layout)?;
                 }
+                Ok(false.into())
             }
-            ast::Stmt::Block { block } => {
-                block.node.build_ir_in(symtable, layout)?;
+            ast::Stmt::Block { block } => block.node.build_ir_in(symtable, layout),
+            ast::Stmt::If { cond, then, els } => {
+                let cond = cond.build_ir_in(symtable, layout)?;
+
+                let then_bb = layout.new_bb(None);
+                let els_bb = layout.new_bb(None);
+                let next_bb = if els.is_some() {
+                    layout.new_bb(None)
+                } else {
+                    els_bb
+                };
+
+                layout.with_bb(then_bb, |layout| {
+                    if !then.node.build_ir_in(symtable, layout)?.is_terminated() {
+                        let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
+                        layout.push_inst(jump_to_next);
+                    }
+                    Ok(())
+                })?;
+
+                if let Some(els) = els {
+                    layout.with_bb(els_bb, |layout| {
+                        if !els.node.build_ir_in(symtable, layout)?.is_terminated() {
+                            let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
+                            layout.push_inst(jump_to_next);
+                        }
+                        Ok(())
+                    })?;
+                }
+
+                let branch = layout.dfg_mut().new_value().branch(cond, then_bb, els_bb);
+                layout.push_inst(branch);
+                // Safety: `next_bb` is empty, and `branch` is the last instruction.
+                layout.switch_bb(next_bb);
+                Ok(false.into())
             }
         }
-        Ok(())
     }
 }
 
 impl ast::Expr {
-    /// Build IR from AST in a BasicBlock, return the handle of the result value.
+    /// Build IR from AST in a BasicBlock, return the handle of the result
+    /// value.
     pub fn build_ir_in(self, symtable: &SymbolTable, layout: &mut LayoutBuilder) -> Result<Value> {
         Ok(match self {
             ast::Expr::Unary { op, expr } => {
@@ -259,69 +338,105 @@ impl ast::Expr {
                 }
             }
             ast::Expr::Binary { op, lhs, rhs } => {
-                let lhs = lhs.build_ir_in(symtable, layout)?;
-                let rhs = rhs.build_ir_in(symtable, layout)?;
-                let dfg = layout.dfg_mut();
                 match op.node {
-                    ast::BinaryOp::Add => {
-                        let add = dfg.new_value().binary(BinaryOp::Add, lhs, rhs);
-                        layout.push_inst(add)
-                    }
-                    ast::BinaryOp::Sub => {
-                        let sub = dfg.new_value().binary(BinaryOp::Sub, lhs, rhs);
-                        layout.push_inst(sub)
-                    }
-                    ast::BinaryOp::Mul => {
-                        let mul = dfg.new_value().binary(BinaryOp::Mul, lhs, rhs);
-                        layout.push_inst(mul)
-                    }
-                    ast::BinaryOp::Div => {
-                        let div = dfg.new_value().binary(BinaryOp::Div, lhs, rhs);
-                        layout.push_inst(div)
-                    }
-                    ast::BinaryOp::Mod => {
-                        let rem = dfg.new_value().binary(BinaryOp::Mod, lhs, rhs);
-                        layout.push_inst(rem)
-                    }
-                    ast::BinaryOp::Eq => {
-                        let eq = dfg.new_value().binary(BinaryOp::Eq, lhs, rhs);
-                        layout.push_inst(eq)
-                    }
-                    ast::BinaryOp::Ne => {
-                        let not_eq = dfg.new_value().binary(BinaryOp::NotEq, lhs, rhs);
-                        layout.push_inst(not_eq)
-                    }
-                    ast::BinaryOp::Lt => {
-                        let lt = dfg.new_value().binary(BinaryOp::Lt, lhs, rhs);
-                        layout.push_inst(lt)
-                    }
-                    ast::BinaryOp::Le => {
-                        let lt_eq = dfg.new_value().binary(BinaryOp::Le, lhs, rhs);
-                        layout.push_inst(lt_eq)
-                    }
-                    ast::BinaryOp::Gt => {
-                        let gt = dfg.new_value().binary(BinaryOp::Gt, lhs, rhs);
-                        layout.push_inst(gt)
-                    }
-                    ast::BinaryOp::Ge => {
-                        let gt_eq = dfg.new_value().binary(BinaryOp::Ge, lhs, rhs);
-                        layout.push_inst(gt_eq)
-                    }
                     ast::BinaryOp::LAnd => {
+                        let lhs = lhs.build_ir_in(symtable, layout)?;
                         let dfg = layout.dfg_mut();
                         let zero = dfg.new_value().integer(0);
                         let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
-                        let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
-                        let and = dfg.new_value().binary(BinaryOp::And, lhs, rhs);
-                        layout.push_insts([lhs, rhs, and])
+
+                        // short-circuit
+                        let result = dfg.new_value().alloc(Type::get_i32());
+                        let true_bb = layout.new_bb(None);
+                        let false_bb = layout.new_bb(None);
+                        let next_bb = layout.new_bb(None);
+
+                        let branch = layout.dfg_mut().new_value().branch(lhs, true_bb, false_bb);
+                        layout.push_insts([lhs, result, branch]);
+
+                        layout.with_bb(true_bb, |layout| {
+                            let rhs = rhs.build_ir_in(symtable, layout)?;
+                            let dfg = layout.dfg_mut();
+                            let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
+                            let store = dfg.new_value().store(rhs, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([rhs, store, jump]);
+                            Ok(())
+                        })?;
+
+                        layout.with_bb(false_bb, |layout| {
+                            let dfg = layout.dfg_mut();
+                            let store = dfg.new_value().store(zero, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([store, jump]);
+                            Ok(())
+                        })?;
+
+                        // Safety: `next_bb` is empty, and `branch` is the last instruction.
+                        layout.switch_bb(next_bb);
+
+                        let result = layout.dfg_mut().new_value().load(result);
+                        layout.push_inst(result)
                     }
                     ast::BinaryOp::LOr => {
+                        let lhs = lhs.build_ir_in(symtable, layout)?;
                         let dfg = layout.dfg_mut();
                         let zero = dfg.new_value().integer(0);
                         let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
-                        let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
-                        let or = dfg.new_value().binary(BinaryOp::Or, lhs, rhs);
-                        layout.push_insts([lhs, rhs, or])
+
+                        // short-circuit
+                        let result = dfg.new_value().alloc(Type::get_i32());
+                        let true_bb = layout.new_bb(None);
+                        let false_bb = layout.new_bb(None);
+                        let next_bb = layout.new_bb(None);
+
+                        let branch = layout.dfg_mut().new_value().branch(lhs, true_bb, false_bb);
+                        layout.push_insts([lhs, result, branch]);
+
+                        layout.with_bb(true_bb, |layout| {
+                            let dfg = layout.dfg_mut();
+                            let store = dfg.new_value().store(lhs, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([store, jump]);
+                            Ok(())
+                        })?;
+
+                        layout.with_bb(false_bb, |layout| {
+                            let rhs = rhs.build_ir_in(symtable, layout)?;
+                            let dfg = layout.dfg_mut();
+                            let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
+                            let store = dfg.new_value().store(rhs, result);
+                            let jump = dfg.new_value().jump(next_bb);
+                            layout.push_insts([rhs, store, jump]);
+                            Ok(())
+                        })?;
+
+                        // Safety: `next_bb` is empty, and `branch` is the last instruction.
+                        layout.switch_bb(next_bb);
+
+                        let result = layout.dfg_mut().new_value().load(result);
+                        layout.push_inst(result)
+                    }
+                    _ => {
+                        let lhs = lhs.build_ir_in(symtable, layout)?;
+                        let rhs = rhs.build_ir_in(symtable, layout)?;
+                        let dfg = layout.dfg_mut();
+                        let op = match op.node {
+                            ast::BinaryOp::Add => BinaryOp::Add,
+                            ast::BinaryOp::Sub => BinaryOp::Sub,
+                            ast::BinaryOp::Mul => BinaryOp::Mul,
+                            ast::BinaryOp::Div => BinaryOp::Div,
+                            ast::BinaryOp::Mod => BinaryOp::Mod,
+                            ast::BinaryOp::Eq => BinaryOp::Eq,
+                            ast::BinaryOp::Ne => BinaryOp::NotEq,
+                            ast::BinaryOp::Lt => BinaryOp::Lt,
+                            ast::BinaryOp::Le => BinaryOp::Le,
+                            ast::BinaryOp::Gt => BinaryOp::Gt,
+                            ast::BinaryOp::Ge => BinaryOp::Ge,
+                            ast::BinaryOp::LAnd | ast::BinaryOp::LOr => unreachable!(),
+                        };
+                        let inst = dfg.new_value().binary(op, lhs, rhs);
+                        layout.push_inst(inst)
                     }
                 }
             }
@@ -335,7 +450,7 @@ impl ast::Expr {
                     .get_var(&name.node)
                     .ok_or(CompileError::VariableNotFound {
                         span: name.span().into(),
-                    })?; // todo: error handling
+                    })?;
                 match var {
                     Symbol::Const(num) => {
                         let dfg = layout.dfg_mut();
@@ -370,7 +485,7 @@ impl ast::Expr {
                     ast::BinaryOp::Add => lhs.saturating_add(rhs),
                     ast::BinaryOp::Sub => lhs.saturating_sub(rhs),
                     ast::BinaryOp::Mul => lhs.saturating_mul(rhs),
-                    ast::BinaryOp::Div => lhs.checked_div(rhs).unwrap_or(-1), // Maybe a compile error?
+                    ast::BinaryOp::Div => lhs.checked_div(rhs).unwrap_or(-1), // A compile error?
                     ast::BinaryOp::Mod => lhs.checked_rem(rhs).unwrap_or(-1),
                     ast::BinaryOp::Eq => (lhs == rhs) as i32,
                     ast::BinaryOp::Ne => (lhs != rhs) as i32,
@@ -399,10 +514,12 @@ impl ast::Expr {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::irutils::*;
-    use proptest::prelude::*;
     use std::collections::HashSet;
+
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::{analysis::Analyzer, utils::*};
 
     proptest! {
         #[test]
@@ -410,13 +527,16 @@ mod test {
             program in ast::arbitrary::arb_comp_unit()
                 .prop_map(ast::display::Displayable)
         ) {
-            let (program, _) = program.0.build_ir().unwrap();
-            for func in program.funcs().values() {
+            let (program, metadata) = program.0.build_ir().unwrap();
+            let mut analyzer = Analyzer::new(&program, &metadata);
+            for (&func, func_data) in program.funcs() {
+                let dominators = analyzer.analyze_dominators(func);
                 let mut defined = HashSet::new();
-                for (_, block) in func.layout().bbs() {
+                for bb in dominators.iter() {
+                    let block = func_data.layout().bbs().node(&bb).expect("bb not found");
                     for &inst in block.insts().keys() {
-                        for value in func.dfg().value(inst).kind().value_uses() {
-                            if !is_const(func.dfg().value(value)) {
+                        for value in func_data.dfg().value(inst).kind().value_uses() {
+                            if !is_const(func_data.dfg().value(value)) {
                                 assert!(
                                     defined.contains(&value),
                                     "variable {:?} is used before defined",

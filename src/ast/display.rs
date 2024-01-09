@@ -1,5 +1,6 @@
-use indenter::indented;
 use std::fmt::{Debug, Display, Write};
+
+use indenter::indented;
 
 use super::*;
 
@@ -130,6 +131,14 @@ impl Display for Stmt {
             Stmt::Block { block } => {
                 writeln!(f, "{}", block)
             }
+            Stmt::If { cond, then, els } => {
+                write!(f, "if ({}) ", cond)?;
+                write!(f, "{}", then)?;
+                if let Some(els) = els {
+                    write!(f, "else {}", els)?;
+                }
+                Ok(())
+            }
             Stmt::Return { expr } => {
                 writeln!(f, "return {};", expr)
             }
@@ -137,14 +146,56 @@ impl Display for Stmt {
     }
 }
 
-impl Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Expr {
+    fn precedence(&self) -> u32 {
+        match self {
+            Expr::Number(_) | Expr::LVar(_) => 0,
+            Expr::Unary { .. } => 1,
+            Expr::Binary { op, .. } => match op.node {
+                BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => 2,
+                BinaryOp::Add | BinaryOp::Sub => 3,
+                BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => 4,
+                BinaryOp::Eq | BinaryOp::Ne => 5,
+                BinaryOp::LAnd => 6,
+                BinaryOp::LOr => 7,
+            },
+        }
+    }
+
+    fn fmt_with_prec(&self, f: &mut std::fmt::Formatter<'_>, outer_prec: u32) -> std::fmt::Result {
+        let inner_prec = self.precedence();
+        if inner_prec > outer_prec {
+            write!(f, "(")?;
+        }
         match self {
             Expr::Number(expr) => write!(f, "{}", expr),
             Expr::LVar(ident) => write!(f, "{}", ident),
-            Expr::Unary { op, expr } => write!(f, "{}{}", op, expr),
-            Expr::Binary { op, lhs, rhs } => write!(f, "{} {} {}", lhs, op, rhs),
+            Expr::Unary { op, expr } => {
+                write!(f, "{}", op)?;
+                match op.node {
+                    UnaryOp::Pos | UnaryOp::Neg => expr.fmt_with_prec(f, inner_prec + 1)?,
+                    UnaryOp::Not => expr.fmt_with_prec(f, inner_prec)?,
+                }
+
+                Ok(())
+            }
+            Expr::Binary { op, lhs, rhs } => {
+                lhs.fmt_with_prec(f, inner_prec)?;
+                write!(f, " {} ", op)?;
+                rhs.fmt_with_prec(f, inner_prec)?;
+                Ok(())
+            }
+        }?;
+        if inner_prec > outer_prec {
+            write!(f, ")")?;
         }
+        Ok(())
+    }
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_with_prec(f, 15)
     }
 }
 

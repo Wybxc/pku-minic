@@ -1,11 +1,12 @@
 //! Arbitrary AST generator.
 
+use std::fmt::Debug;
+
 use proptest::{
     prelude::*,
     strategy::{NewTree, ValueTree},
     test_runner::TestRunner,
 };
-use std::fmt::Debug;
 
 use super::*;
 
@@ -13,20 +14,16 @@ use super::*;
 #[derive(Debug, Clone, Default)]
 struct LocalEnv {
     pub prev: Option<Box<LocalEnv>>,
-    consts: im::HashSet<String>,
-    vars: im::HashSet<String>,
+    consts: imbl::HashSet<String>,
+    vars: imbl::HashSet<String>,
 }
 
 impl LocalEnv {
     /// Declare a constant.
-    pub fn decl_const(&mut self, ident: String) {
-        self.consts.insert(ident);
-    }
+    pub fn decl_const(&mut self, ident: String) { self.consts.insert(ident); }
 
     /// Declare a variable.
-    pub fn decl_var(&mut self, ident: String) {
-        self.vars.insert(ident);
-    }
+    pub fn decl_var(&mut self, ident: String) { self.vars.insert(ident); }
 
     /// Generate an arbitrary free identifier.
     pub fn arb_free_lvar(self) -> impl Strategy<Value = String> {
@@ -135,9 +132,7 @@ fn arb_func_def() -> impl Strategy<Value = FuncDef> {
 }
 
 /// Generate an arbitrary function type.
-fn arb_func_type() -> impl Strategy<Value = FuncType> {
-    Just(FuncType::Int)
-}
+fn arb_func_type() -> impl Strategy<Value = FuncType> { Just(FuncType::Int) }
 
 #[derive(Debug)]
 struct BlockStrategy {
@@ -167,9 +162,10 @@ impl Strategy for BlockStrategy {
         while insts < self.max_insts {
             let mut weights = [
                 1, // const decl
-                2, // var decl
+                3, // var decl
                 5, // stmt
                 2, // block
+                2, // if
             ];
             if insts + 1 >= self.max_insts {
                 weights[3] = 0;
@@ -219,6 +215,20 @@ impl Strategy for BlockStrategy {
                     insts += block.items_len();
                     items.push(BlockItemValueTree::Block(Box::new(block)));
                 }
+                4 => {
+                    // if
+                    let cond = arb_expr(local.clone()).new_tree(runner)?;
+                    let then = BlockStrategy::new(local.clone(), (self.max_insts + 1) / 2)
+                        .new_tree(runner)?;
+                    let els = BlockStrategy::new(local.clone(), (self.max_insts + 1) / 2)
+                        .new_tree(runner)?;
+                    insts += then.items_len() + els.items_len();
+                    items.push(BlockItemValueTree::If {
+                        cond: Box::new(cond),
+                        then: Box::new(then),
+                        els: Some(Box::new(els)),
+                    });
+                }
                 _ => unreachable!(),
             }
         }
@@ -255,6 +265,9 @@ impl BlockValueTree {
             .map(|item| match item {
                 BlockItemValueTree::Item(_) => 1,
                 BlockItemValueTree::Block(tree) => tree.items_len(),
+                BlockItemValueTree::If { then, els, .. } => {
+                    then.items_len() + els.as_ref().map(|els| els.items_len()).unwrap_or(0)
+                }
             })
             .sum()
     }
@@ -313,6 +326,11 @@ impl ValueTree for BlockValueTree {
 enum BlockItemValueTree {
     Item(Box<dyn ValueTree<Value = BlockItem>>),
     Block(Box<BlockValueTree>),
+    If {
+        cond: Box<dyn ValueTree<Value = Expr>>,
+        then: Box<BlockValueTree>,
+        els: Option<Box<BlockValueTree>>,
+    },
 }
 
 impl ValueTree for BlockItemValueTree {
@@ -324,6 +342,26 @@ impl ValueTree for BlockItemValueTree {
             BlockItemValueTree::Block(tree) => BlockItem::Stmt {
                 stmt: Stmt::Block {
                     block: tree.current().into_span(0, 0),
+                }
+                .into_span(0, 0),
+            },
+            BlockItemValueTree::If { cond, then, els } => BlockItem::Stmt {
+                stmt: Stmt::If {
+                    cond: cond.current(),
+                    then: Box::new(
+                        Stmt::Block {
+                            block: then.current().into_span(0, 0),
+                        }
+                        .into_span(0, 0),
+                    ),
+                    els: els.as_ref().map(|els| {
+                        Box::new(
+                            Stmt::Block {
+                                block: els.current().into_span(0, 0),
+                            }
+                            .into_span(0, 0),
+                        )
+                    }),
                 }
                 .into_span(0, 0),
             },
@@ -341,6 +379,19 @@ impl ValueTree for BlockItemValueTree {
         match self {
             BlockItemValueTree::Item(tree) => tree.simplify(),
             BlockItemValueTree::Block(tree) => tree.simplify(),
+            BlockItemValueTree::If { cond, then, els } => {
+                if cond.simplify() {
+                    return true;
+                }
+                if then.simplify() {
+                    return true;
+                }
+                if let Some(els) = els {
+                    els.simplify()
+                } else {
+                    false
+                }
+            }
         }
     }
 
@@ -348,15 +399,26 @@ impl ValueTree for BlockItemValueTree {
         match self {
             BlockItemValueTree::Item(tree) => tree.complicate(),
             BlockItemValueTree::Block(tree) => tree.complicate(),
+            BlockItemValueTree::If { cond, then, els } => {
+                if let Some(els) = els {
+                    if els.complicate() {
+                        return true;
+                    }
+                }
+                if then.complicate() {
+                    return true;
+                }
+                cond.complicate()
+            }
         }
     }
 }
 
 /// Generate an constant declaration.
 fn arb_const_decl(name: String, local: LocalEnv) -> impl Strategy<Value = ConstDecl> {
-    (arb_btype(), arb_const_def(name, local.clone())).prop_map(move |(ty, def)| ConstDecl {
+    (arb_btype(), arb_const_def(name, local)).prop_map(move |(ty, def)| ConstDecl {
         ty: ty.into_span(0, 0),
-        defs: im::vector![def],
+        defs: imbl::vector![def],
     })
 }
 
@@ -371,9 +433,9 @@ fn arb_const_def(name: String, local: LocalEnv) -> impl Strategy<Value = ConstDe
 
 /// Generate an arbitrary variable declaration.
 fn arb_var_decl(name: String, local: LocalEnv) -> impl Strategy<Value = VarDecl> {
-    (arb_btype(), arb_var_def(name, local.clone())).prop_map(move |(ty, def)| VarDecl {
+    (arb_btype(), arb_var_def(name, local)).prop_map(move |(ty, def)| VarDecl {
         ty: ty.into_span(0, 0),
-        defs: im::vector![def],
+        defs: imbl::vector![def],
     })
 }
 
@@ -389,13 +451,11 @@ fn arb_init_val(local: LocalEnv) -> impl Strategy<Value = InitVal> {
     arb_expr(local).prop_map(|expr| InitVal { expr })
 }
 
-fn arb_btype() -> impl Strategy<Value = BType> {
-    Just(BType::Int)
-}
+fn arb_btype() -> impl Strategy<Value = BType> { Just(BType::Int) }
 
 fn arb_const_expr(local: LocalEnv) -> impl Strategy<Value = ConstExpr> {
     let s_number = arb_number_expr();
-    let s_leaf = if let Some(s_const) = local.clone().arb_const() {
+    let s_leaf = if let Some(s_const) = local.arb_const() {
         let s_const = s_const.prop_map(Expr::LVar);
         prop_oneof![s_number, s_const].boxed()
     } else {
@@ -412,7 +472,7 @@ fn arb_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
     let s_expr =
         prop::option::weighted(0.8, arb_expr(local.clone())).prop_map(|expr| Stmt::Expr { expr });
     let s_return = arb_return_stmt(local.clone());
-    if let Some(s_assign) = arb_assign_stmt(local.clone()) {
+    if let Some(s_assign) = arb_assign_stmt(local) {
         prop_oneof![
             10 => s_assign,
             10 => s_expr,
@@ -421,7 +481,7 @@ fn arb_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
         .boxed()
     } else {
         prop_oneof![
-            10 => s_expr,
+            20 => s_expr,
             1 => s_return,
         ]
         .boxed()
@@ -441,7 +501,7 @@ fn arb_return_stmt(local: LocalEnv) -> impl Strategy<Value = Stmt> {
 
 fn arb_expr(local: LocalEnv) -> impl Strategy<Value = Expr> {
     let s_number = arb_number_expr();
-    let s_leaf = if let Some(s_rvar) = local.clone().arb_rvar() {
+    let s_leaf = if let Some(s_rvar) = local.arb_rvar() {
         let s_rvar = s_rvar.prop_map(Expr::LVar);
         prop_oneof![s_number, s_rvar].boxed()
     } else {
@@ -521,7 +581,7 @@ mod test {
 
     impl<'a, T> Iterator for Samples<'a, T>
     where
-        T: std::fmt::Debug,
+        T: Debug,
     {
         type Item = T;
 
@@ -555,15 +615,30 @@ mod test {
     where
         F: Fn(&Decl) -> bool,
     {
+        fn count<F>(stmt: &Stmt, criteria: &F) -> usize
+        where
+            F: Fn(&Decl) -> bool,
+        {
+            match stmt {
+                Stmt::Block { block } => count_decl(&block.node, criteria),
+                Stmt::If { then, els, .. } => {
+                    let count_then = count(&then.node, criteria);
+                    let count_els = els
+                        .as_ref()
+                        .map(|els| count(&els.node, criteria))
+                        .unwrap_or(0);
+                    count_then + count_els
+                }
+                _ => 0,
+            }
+        }
+
         block
             .items
             .iter()
             .map(|item| match item {
                 BlockItem::Decl { decl } => criteria(decl) as usize,
-                BlockItem::Stmt { stmt } => match &stmt.node {
-                    Stmt::Block { block } => count_decl(&block.node, criteria),
-                    _ => 0,
-                },
+                BlockItem::Stmt { stmt } => count(&stmt.node, criteria),
             })
             .sum()
     }
@@ -572,17 +647,31 @@ mod test {
     where
         F: Fn(&Stmt) -> bool,
     {
+        fn count<F>(stmt: &Stmt, criteria: &F) -> usize
+        where
+            F: Fn(&Stmt) -> bool,
+        {
+            match stmt {
+                Stmt::Block { block } => count_stmt(&block.node, criteria),
+                Stmt::If { then, els, .. } => {
+                    let count_self = criteria(stmt) as usize;
+                    let count_then = count(&then.node, criteria);
+                    let count_els = els
+                        .as_ref()
+                        .map(|els| count(&els.node, criteria))
+                        .unwrap_or(0);
+                    count_self + count_then + count_els
+                }
+                _ => criteria(stmt) as usize,
+            }
+        }
+
         block
             .items
             .iter()
             .map(|item| match item {
-                BlockItem::Stmt { stmt } => match &stmt.node {
-                    Stmt::Block { block } => count_stmt(&block.node, criteria),
-                    Stmt::Expr { expr } => criteria(&Stmt::Expr { expr: expr.clone() }) as usize,
-                    Stmt::Assign { .. } => criteria(&stmt.node) as usize,
-                    Stmt::Return { .. } => criteria(&stmt.node) as usize,
-                },
-                _ => 0,
+                BlockItem::Decl { .. } => 0,
+                BlockItem::Stmt { stmt } => count(&stmt.node, criteria),
             })
             .sum()
     }

@@ -5,12 +5,13 @@
 //! bi-simulates with the original program, i.e. for arbitrary initial
 //! states, the two programs produce the same final states.
 
-use std::collections::HashMap;
-use std::fmt::{self, Debug, Formatter};
-
-use crate::codegen::riscv::{make_reg_set, Program, RegSet};
+use std::{
+    collections::HashMap,
+    fmt::{self, Debug, Formatter},
+};
 
 use super::riscv::{Inst, RegId};
+use crate::codegen::riscv::{make_reg_set, Program, RegSet};
 
 /// Register file.
 #[derive(Clone, PartialEq, Eq)]
@@ -30,14 +31,35 @@ impl Regs {
     }
 
     /// Get the value of a register.
-    pub fn get(&self, reg: RegId) -> i32 {
-        self.0[reg as usize]
-    }
+    pub fn get(&self, reg: RegId) -> i32 { self.0[reg as usize] }
 
     /// Set the value of a register.
     pub fn set(&mut self, reg: RegId, value: i32) {
         if reg != RegId::X0 {
             self.0[reg as usize] = value;
+        }
+    }
+
+    /// Test a branch instruction.
+    pub fn br_test(&self, inst: Inst) -> bool {
+        match inst {
+            Inst::Beq(rs1, rs2, _) => self.get(rs1) == self.get(rs2),
+            Inst::Beqz(rs, _) => self.get(rs) == 0,
+            Inst::Bge(rs1, rs2, _) => self.get(rs1) >= self.get(rs2),
+            Inst::Bgeu(rs1, rs2, _) => (self.get(rs1) as u32) >= (self.get(rs2) as u32),
+            Inst::Bgez(rs, _) => self.get(rs) >= 0,
+            Inst::Bgt(rs1, rs2, _) => self.get(rs1) > self.get(rs2),
+            Inst::Bgtu(rs1, rs2, _) => (self.get(rs1) as u32) > (self.get(rs2) as u32),
+            Inst::Bgtz(rs, _) => self.get(rs) > 0,
+            Inst::Ble(rs1, rs2, _) => self.get(rs1) <= self.get(rs2),
+            Inst::Bleu(rs1, rs2, _) => (self.get(rs1) as u32) <= (self.get(rs2) as u32),
+            Inst::Blez(rs, _) => self.get(rs) <= 0,
+            Inst::Blt(rs1, rs2, _) => self.get(rs1) < self.get(rs2),
+            Inst::Bltu(rs1, rs2, _) => (self.get(rs1) as u32) < (self.get(rs2) as u32),
+            Inst::Bltz(rs, _) => self.get(rs) < 0,
+            Inst::Bne(rs1, rs2, _) => self.get(rs1) != self.get(rs2),
+            Inst::Bnez(rs, _) => self.get(rs) != 0,
+            _ => panic!("not a branch instruction"),
         }
     }
 }
@@ -120,9 +142,7 @@ impl Memory {
 }
 
 impl Default for Memory {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 /// A simulator for the codegen output.
@@ -132,97 +152,138 @@ impl Default for Memory {
 pub fn simulate(code: &Program, regs: &mut Regs, mem: &mut Memory) {
     let main = code.functions.iter().find(|f| f.name == "main").unwrap();
 
-    for block in &main.blocks {
-        for (_, inst) in block.insts() {
-            match inst {
-                Inst::Li(rd, imm) => regs.set(rd, imm),
-                Inst::Mv(rd, rs) => regs.set(rd, regs.get(rs)),
-                Inst::Add(rd, rs1, rs2) => regs.set(rd, regs.get(rs1).wrapping_add(regs.get(rs2))),
-                Inst::Addi(rd, rs, imm) => regs.set(rd, regs.get(rs).wrapping_add(imm.value())),
-                Inst::Sub(rd, rs1, rs2) => regs.set(rd, regs.get(rs1).wrapping_sub(regs.get(rs2))),
-                Inst::Neg(rd, rs) => regs.set(rd, 0i32.wrapping_sub(regs.get(rs))),
-                Inst::Mul(rd, rs1, rs2) => regs.set(rd, regs.get(rs1).wrapping_mul(regs.get(rs2))),
-                Inst::Mulh(rd, rs1, rs2) => {
-                    let result = (regs.get(rs1) as i64 * regs.get(rs2) as i64) >> 32;
-                    regs.set(rd, result as i32);
+    if let Some(entry) = main.entry() {
+        let mut cursor = main.cursor(entry);
+        while !cursor.is_null() {
+            let block = cursor.block().unwrap();
+            let mut jump = None; // Jump to the given label, if any.
+            for (_, inst) in block.insts() {
+                match inst {
+                    Inst::Li(rd, imm) => regs.set(rd, imm),
+                    Inst::Mv(rd, rs) => regs.set(rd, regs.get(rs)),
+                    Inst::Add(rd, rs1, rs2) => {
+                        regs.set(rd, regs.get(rs1).wrapping_add(regs.get(rs2)))
+                    }
+                    Inst::Addi(rd, rs, imm) => regs.set(rd, regs.get(rs).wrapping_add(imm.value())),
+                    Inst::Sub(rd, rs1, rs2) => {
+                        regs.set(rd, regs.get(rs1).wrapping_sub(regs.get(rs2)))
+                    }
+                    Inst::Neg(rd, rs) => regs.set(rd, 0i32.wrapping_sub(regs.get(rs))),
+                    Inst::Mul(rd, rs1, rs2) => {
+                        regs.set(rd, regs.get(rs1).wrapping_mul(regs.get(rs2)))
+                    }
+                    Inst::Mulh(rd, rs1, rs2) => {
+                        let result = (regs.get(rs1) as i64 * regs.get(rs2) as i64) >> 32;
+                        regs.set(rd, result as i32);
+                    }
+                    Inst::Div(rd, rs1, rs2) => {
+                        regs.set(rd, regs.get(rs1).checked_div(regs.get(rs2)).unwrap_or(-1))
+                    }
+                    Inst::Divu(rd, rs1, rs2) => {
+                        let result = (regs.get(rs1) as u32).checked_div(regs.get(rs2) as u32);
+                        regs.set(rd, result.map_or(-1, |r| r as i32))
+                    }
+                    Inst::Rem(rd, rs1, rs2) => {
+                        regs.set(rd, regs.get(rs1).checked_rem(regs.get(rs2)).unwrap_or(-1))
+                    }
+                    Inst::Remu(rd, rs1, rs2) => {
+                        let result = (regs.get(rs1) as u32).checked_rem(regs.get(rs2) as u32);
+                        regs.set(rd, result.map_or(-1, |r| r as i32))
+                    }
+                    Inst::Not(rd, rs) => regs.set(rd, !regs.get(rs)),
+                    Inst::And(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) & regs.get(rs2)),
+                    Inst::Andi(rd, rs, imm) => regs.set(rd, regs.get(rs) & imm.value()),
+                    Inst::Or(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) | regs.get(rs2)),
+                    Inst::Ori(rd, rs, imm) => regs.set(rd, regs.get(rs) | imm.value()),
+                    Inst::Xor(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) ^ regs.get(rs2)),
+                    Inst::Xori(rd, rs, imm) => regs.set(rd, regs.get(rs) ^ imm.value()),
+                    Inst::Sll(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) << regs.get(rs2)),
+                    Inst::Slli(rd, rs, imm) => regs.set(rd, regs.get(rs) << imm.value()),
+                    Inst::Srl(rd, rs1, rs2) => {
+                        regs.set(rd, ((regs.get(rs1) as u32) >> regs.get(rs2)) as i32)
+                    }
+                    Inst::Srli(rd, rs, imm) => {
+                        regs.set(rd, ((regs.get(rs) as u32) >> imm.value()) as i32)
+                    }
+                    Inst::Sra(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) >> regs.get(rs2)),
+                    Inst::Srai(rd, rs, imm) => regs.set(rd, regs.get(rs) >> imm.value()),
+                    Inst::Slt(rd, rs1, rs2) => regs.set(rd, (regs.get(rs1) < regs.get(rs2)) as i32),
+                    Inst::Slti(rd, rs, imm) => regs.set(rd, (regs.get(rs) < imm.value()) as i32),
+                    Inst::Sltu(rd, rs1, rs2) => {
+                        regs.set(rd, ((regs.get(rs1) as u32) < regs.get(rs2) as u32) as i32)
+                    }
+                    Inst::Sltiu(rd, rs, imm) => {
+                        regs.set(rd, ((regs.get(rs) as u32) < imm.value() as u32) as i32)
+                    }
+                    Inst::Seqz(rd, rs) => regs.set(rd, (regs.get(rs) == 0) as i32),
+                    Inst::Snez(rd, rs) => regs.set(rd, (regs.get(rs) != 0) as i32),
+                    Inst::Sltz(rd, rs) => regs.set(rd, (regs.get(rs) < 0) as i32),
+                    Inst::Sgtz(rd, rs) => regs.set(rd, (regs.get(rs) > 0) as i32),
+                    Inst::Lb(rd, imm, rs) => {
+                        let addr = regs.get(rs) + imm.value();
+                        regs.set(rd, mem.read::<1>(addr)[0] as i8 as i32);
+                    }
+                    Inst::Lbu(rd, imm, rs) => {
+                        let addr = regs.get(rs) + imm.value();
+                        regs.set(rd, mem.read::<1>(addr)[0] as i32);
+                    }
+                    Inst::Lh(rd, imm, rs) => {
+                        let addr = regs.get(rs) + imm.value();
+                        regs.set(rd, i16::from_le_bytes(mem.read::<2>(addr)) as i32);
+                    }
+                    Inst::Lhu(rd, imm, rs) => {
+                        let addr = regs.get(rs) + imm.value();
+                        regs.set(rd, u16::from_le_bytes(mem.read::<2>(addr)) as i32);
+                    }
+                    Inst::Lw(rd, imm, rs) => {
+                        let addr = regs.get(rs) + imm.value();
+                        regs.set(rd, i32::from_le_bytes(mem.read::<4>(addr)));
+                    }
+                    Inst::Sb(rs2, imm, rs1) => {
+                        let addr = regs.get(rs1) + imm.value();
+                        mem.write::<1>(addr, [regs.get(rs2) as u8]);
+                    }
+                    Inst::Sh(rs2, imm, rs1) => {
+                        let addr = regs.get(rs1) + imm.value();
+                        mem.write::<2>(addr, (regs.get(rs2) as i16).to_le_bytes());
+                    }
+                    Inst::Sw(rs2, imm, rs1) => {
+                        let addr = regs.get(rs1) + imm.value();
+                        mem.write::<4>(addr, regs.get(rs2).to_le_bytes());
+                    }
+                    Inst::Nop => (),
+                    Inst::J(label) => {
+                        jump = Some(main.cursor(label));
+                        break;
+                    }
+                    Inst::Beq(_, _, label)
+                    | Inst::Beqz(_, label)
+                    | Inst::Bge(_, _, label)
+                    | Inst::Bgeu(_, _, label)
+                    | Inst::Bgez(_, label)
+                    | Inst::Bgt(_, _, label)
+                    | Inst::Bgtu(_, _, label)
+                    | Inst::Bgtz(_, label)
+                    | Inst::Ble(_, _, label)
+                    | Inst::Bleu(_, _, label)
+                    | Inst::Blez(_, label)
+                    | Inst::Blt(_, _, label)
+                    | Inst::Bltu(_, _, label)
+                    | Inst::Bltz(_, label)
+                    | Inst::Bne(_, _, label)
+                    | Inst::Bnez(_, label) => {
+                        if regs.br_test(inst) {
+                            jump = Some(main.cursor(label));
+                            break;
+                        }
+                    }
+                    Inst::Ret => return,
                 }
-                Inst::Div(rd, rs1, rs2) => {
-                    regs.set(rd, regs.get(rs1).checked_div(regs.get(rs2)).unwrap_or(-1))
-                }
-                Inst::Divu(rd, rs1, rs2) => {
-                    let result = (regs.get(rs1) as u32).checked_div(regs.get(rs2) as u32);
-                    regs.set(rd, result.map_or(-1, |r| r as i32))
-                }
-                Inst::Rem(rd, rs1, rs2) => {
-                    regs.set(rd, regs.get(rs1).checked_rem(regs.get(rs2)).unwrap_or(-1))
-                }
-                Inst::Remu(rd, rs1, rs2) => {
-                    let result = (regs.get(rs1) as u32).checked_rem(regs.get(rs2) as u32);
-                    regs.set(rd, result.map_or(-1, |r| r as i32))
-                }
-                Inst::Not(rd, rs) => regs.set(rd, !regs.get(rs)),
-                Inst::And(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) & regs.get(rs2)),
-                Inst::Andi(rd, rs, imm) => regs.set(rd, regs.get(rs) & imm.value()),
-                Inst::Or(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) | regs.get(rs2)),
-                Inst::Ori(rd, rs, imm) => regs.set(rd, regs.get(rs) | imm.value()),
-                Inst::Xor(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) ^ regs.get(rs2)),
-                Inst::Xori(rd, rs, imm) => regs.set(rd, regs.get(rs) ^ imm.value()),
-                Inst::Sll(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) << regs.get(rs2)),
-                Inst::Slli(rd, rs, imm) => regs.set(rd, regs.get(rs) << imm.value()),
-                Inst::Srl(rd, rs1, rs2) => {
-                    regs.set(rd, ((regs.get(rs1) as u32) >> regs.get(rs2)) as i32)
-                }
-                Inst::Srli(rd, rs, imm) => {
-                    regs.set(rd, ((regs.get(rs) as u32) >> imm.value()) as i32)
-                }
-                Inst::Sra(rd, rs1, rs2) => regs.set(rd, regs.get(rs1) >> regs.get(rs2)),
-                Inst::Srai(rd, rs, imm) => regs.set(rd, regs.get(rs) >> imm.value()),
-                Inst::Slt(rd, rs1, rs2) => regs.set(rd, (regs.get(rs1) < regs.get(rs2)) as i32),
-                Inst::Slti(rd, rs, imm) => regs.set(rd, (regs.get(rs) < imm.value()) as i32),
-                Inst::Sltu(rd, rs1, rs2) => {
-                    regs.set(rd, ((regs.get(rs1) as u32) < regs.get(rs2) as u32) as i32)
-                }
-                Inst::Sltiu(rd, rs, imm) => {
-                    regs.set(rd, ((regs.get(rs) as u32) < imm.value() as u32) as i32)
-                }
-                Inst::Seqz(rd, rs) => regs.set(rd, (regs.get(rs) == 0) as i32),
-                Inst::Snez(rd, rs) => regs.set(rd, (regs.get(rs) != 0) as i32),
-                Inst::Sltz(rd, rs) => regs.set(rd, (regs.get(rs) < 0) as i32),
-                Inst::Sgtz(rd, rs) => regs.set(rd, (regs.get(rs) > 0) as i32),
-                Inst::Lb(rd, imm, rs) => {
-                    let addr = regs.get(rs) + imm.value();
-                    regs.set(rd, mem.read::<1>(addr)[0] as i8 as i32);
-                }
-                Inst::Lbu(rd, imm, rs) => {
-                    let addr = regs.get(rs) + imm.value();
-                    regs.set(rd, mem.read::<1>(addr)[0] as i32);
-                }
-                Inst::Lh(rd, imm, rs) => {
-                    let addr = regs.get(rs) + imm.value();
-                    regs.set(rd, i16::from_le_bytes(mem.read::<2>(addr)) as i32);
-                }
-                Inst::Lhu(rd, imm, rs) => {
-                    let addr = regs.get(rs) + imm.value();
-                    regs.set(rd, u16::from_le_bytes(mem.read::<2>(addr)) as i32);
-                }
-                Inst::Lw(rd, imm, rs) => {
-                    let addr = regs.get(rs) + imm.value();
-                    regs.set(rd, i32::from_le_bytes(mem.read::<4>(addr)));
-                }
-                Inst::Sb(rs2, imm, rs1) => {
-                    let addr = regs.get(rs1) + imm.value();
-                    mem.write::<1>(addr, [regs.get(rs2) as u8]);
-                }
-                Inst::Sh(rs2, imm, rs1) => {
-                    let addr = regs.get(rs1) + imm.value();
-                    mem.write::<2>(addr, (regs.get(rs2) as i16).to_le_bytes());
-                }
-                Inst::Sw(rs2, imm, rs1) => {
-                    let addr = regs.get(rs1) + imm.value();
-                    mem.write::<4>(addr, regs.get(rs2).to_le_bytes());
-                }
-                Inst::Nop => (),
-                Inst::Ret => return,
+            }
+            if let Some(jump) = jump {
+                cursor = jump;
+            } else {
+                cursor.next();
             }
         }
     }

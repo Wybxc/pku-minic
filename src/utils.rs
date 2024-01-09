@@ -21,8 +21,7 @@ mod test_is_const {
 
     #[test]
     fn int_is_const() {
-        use koopa::ir::builder_traits::*;
-        use koopa::ir::*;
+        use koopa::ir::{builder_traits::*, *};
 
         let mut program = Program::new();
         let func = program.new_func(FunctionData::with_param_names(
@@ -38,8 +37,7 @@ mod test_is_const {
 
     #[test]
     fn expr_is_not_const() {
-        use koopa::ir::builder_traits::*;
-        use koopa::ir::*;
+        use koopa::ir::{builder_traits::*, *};
 
         let mut program = Program::new();
         let func = program.new_func(FunctionData::with_param_names(
@@ -74,13 +72,23 @@ thread_local! {
 
 /// Get the name of a value for debug printing.
 pub fn ident_inst(inst: Value, dfg: &DataFlowGraph) -> String {
-    dfg.value(inst).name().clone().unwrap_or_else(|| {
+    let value = dfg.value(inst);
+    value.name().clone().unwrap_or_else(|| {
         NAME_MAP.with(|map| {
             let mut map = map.borrow_mut();
             if let Some(name) = map.get(&inst) {
                 return name.clone();
             }
-            let name = format!("%{}", NEXT_ID.replace(NEXT_ID.get() + 1));
+            let name = match value.kind() {
+                ValueKind::Integer(i) => format!("{}", i.value()),
+                ValueKind::ZeroInit(_) => "0".to_string(),
+                // _ => format!("%{}", NEXT_ID.replace(NEXT_ID.get() + 1)),
+                _ => NEXT_ID.with(|id| {
+                    let id_val = id.get();
+                    id.set(id_val + 1);
+                    format!("%{}", id_val)
+                }),
+            };
             map.insert(inst, name.clone());
             name
         })
@@ -143,6 +151,17 @@ pub fn dbg_inst(inst: Value, dfg: &DataFlowGraph) -> String {
                 "return".to_string()
             }
         }
+        ValueKind::Jump(v) => {
+            format!("jump {}", ident_block(v.target(), dfg))
+        }
+        ValueKind::Branch(v) => {
+            format!(
+                "branch {}, {}, {}",
+                ident_inst(v.cond(), dfg),
+                ident_block(v.true_bb(), dfg),
+                ident_block(v.false_bb(), dfg)
+            )
+        }
         _ => todo!(),
     };
     if value.ty().is_unit() {
@@ -160,3 +179,32 @@ pub fn ident_block(block: BasicBlock, dfg: &DataFlowGraph) -> String {
         .clone()
         .unwrap_or_else(|| format!("{:?}", block))
 }
+
+/// Declare a unique identifier type.
+#[macro_export]
+macro_rules! declare_u32_id {
+    ($name: ident) => {
+        /// Unique identifier.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[repr(transparent)]
+        pub struct $name(::std::num::NonZeroU32);
+
+        impl $name {
+            /// Next unique identifier.
+            pub fn next_id() -> Self {
+                use ::std::cell::Cell;
+                use ::std::num::NonZeroU32;
+                thread_local! {
+                    static COUNTER: Cell<NonZeroU32> = Cell::new(unsafe { NonZeroU32::new_unchecked(1) });
+                }
+                COUNTER.with(|counter| {
+                    let id = counter.get();
+                    counter.set(NonZeroU32::new(id.get() + 1).unwrap());
+                    Self(id)
+                })
+            }
+        }
+    }
+}
+
+pub use declare_u32_id;

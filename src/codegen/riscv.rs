@@ -1,12 +1,14 @@
 //! RISC-V specification.
 //!
-//! This module contains types for representing RISC-V instructions and programs.
+//! This module contains types for representing RISC-V instructions and
+//! programs.
 
-use std::{cell::Cell, collections::HashMap, fmt::Display, num::NonZeroU32};
+use std::{collections::HashMap, fmt::Display};
 
 use key_node_list::{impl_node, KeyNodeList};
 
 use super::imm::i12;
+use crate::utils;
 
 /// RISC-V register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -257,6 +259,40 @@ pub enum Inst {
     // --------------------
     /// Return.
     Ret,
+    /// Jump.
+    J(BlockId),
+    /// Branch if equal.
+    Beq(RegId, RegId, BlockId),
+    /// Branch if equal to zero.
+    Beqz(RegId, BlockId),
+    /// Branch if greater than or equal.
+    Bge(RegId, RegId, BlockId),
+    /// Branch if greater than or equal unsigned.
+    Bgeu(RegId, RegId, BlockId),
+    /// Branch if greater than or equal to zero.
+    Bgez(RegId, BlockId),
+    /// Branch if greater than.
+    Bgt(RegId, RegId, BlockId),
+    /// Branch if greater than unsigned.
+    Bgtu(RegId, RegId, BlockId),
+    /// Branch if greater than zero.
+    Bgtz(RegId, BlockId),
+    /// Branch if less than or equal.
+    Ble(RegId, RegId, BlockId),
+    /// Branch if less than or equal unsigned.
+    Bleu(RegId, RegId, BlockId),
+    /// Branch if less than or equal to zero.
+    Blez(RegId, BlockId),
+    /// Branch if less than.
+    Blt(RegId, RegId, BlockId),
+    /// Branch if less than unsigned.
+    Bltu(RegId, RegId, BlockId),
+    /// Branch if less than zero.
+    Bltz(RegId, BlockId),
+    /// Branch if not equal.
+    Bne(RegId, RegId, BlockId),
+    /// Branch if not equal to zero.
+    Bnez(RegId, BlockId),
 
     // Misc
     // --------------------
@@ -309,6 +345,23 @@ impl Display for Inst {
             Inst::Lbu(rd, imm, rs) => write!(f, "lbu {}, {}({})", rd, imm, rs),
             Inst::Lhu(rd, imm, rs) => write!(f, "lhu {}, {}({})", rd, imm, rs),
             Inst::Ret => write!(f, "ret"),
+            Inst::J(label) => write!(f, "j {}", label),
+            Inst::Beq(rs1, rs2, label) => write!(f, "beq {}, {}, {}", rs1, rs2, label),
+            Inst::Beqz(rs, label) => write!(f, "beqz {}, {}", rs, label),
+            Inst::Bge(rs1, rs2, label) => write!(f, "bge {}, {}, {}", rs1, rs2, label),
+            Inst::Bgeu(rs1, rs2, label) => write!(f, "bgeu {}, {}, {}", rs1, rs2, label),
+            Inst::Bgez(rs, label) => write!(f, "bgez {}, {}", rs, label),
+            Inst::Bgt(rs1, rs2, label) => write!(f, "bgt {}, {}, {}", rs1, rs2, label),
+            Inst::Bgtu(rs1, rs2, label) => write!(f, "bgtu {}, {}, {}", rs1, rs2, label),
+            Inst::Bgtz(rs, label) => write!(f, "bgtz {}, {}", rs, label),
+            Inst::Ble(rs1, rs2, label) => write!(f, "ble {}, {}, {}", rs1, rs2, label),
+            Inst::Bleu(rs1, rs2, label) => write!(f, "bleu {}, {}, {}", rs1, rs2, label),
+            Inst::Blez(rs, label) => write!(f, "blez {}, {}", rs, label),
+            Inst::Blt(rs1, rs2, label) => write!(f, "blt {}, {}, {}", rs1, rs2, label),
+            Inst::Bltu(rs1, rs2, label) => write!(f, "bltu {}, {}, {}", rs1, rs2, label),
+            Inst::Bltz(rs, label) => write!(f, "bltz {}, {}", rs, label),
+            Inst::Bne(rs1, rs2, label) => write!(f, "bne {}, {}, {}", rs1, rs2, label),
+            Inst::Bnez(rs, label) => write!(f, "bnez {}, {}", rs, label),
             Inst::Nop => write!(f, "nop"),
         }
     }
@@ -360,6 +413,23 @@ impl Inst {
             Inst::Lbu(rd, _, _) => Some(rd),
             Inst::Lhu(rd, _, _) => Some(rd),
             Inst::Ret => None,
+            Inst::J(_) => None,
+            Inst::Beq(_, _, _) => None,
+            Inst::Beqz(_, _) => None,
+            Inst::Bge(_, _, _) => None,
+            Inst::Bgeu(_, _, _) => None,
+            Inst::Bgez(_, _) => None,
+            Inst::Bgt(_, _, _) => None,
+            Inst::Bgtu(_, _, _) => None,
+            Inst::Bgtz(_, _) => None,
+            Inst::Ble(_, _, _) => None,
+            Inst::Bleu(_, _, _) => None,
+            Inst::Blez(_, _) => None,
+            Inst::Blt(_, _, _) => None,
+            Inst::Bltu(_, _, _) => None,
+            Inst::Bltz(_, _) => None,
+            Inst::Bne(_, _, _) => None,
+            Inst::Bnez(_, _) => None,
             Inst::Nop => None,
         }
     }
@@ -414,30 +484,29 @@ impl Inst {
             Inst::Lbu(_, _, rs) => [None, Some(rs)],
             Inst::Lhu(_, _, rs) => [None, Some(rs)],
             Inst::Ret => [None, None],
+            Inst::J(_) => [None, None],
+            Inst::Beq(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Beqz(rs, _) => [None, Some(rs)],
+            Inst::Bge(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bgeu(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bgez(rs, _) => [None, Some(rs)],
+            Inst::Bgt(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bgtu(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bgtz(rs, _) => [None, Some(rs)],
+            Inst::Ble(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bleu(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Blez(rs, _) => [None, Some(rs)],
+            Inst::Blt(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bltu(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bltz(rs, _) => [None, Some(rs)],
+            Inst::Bne(rs1, rs2, _) => [Some(rs1), Some(rs2)],
+            Inst::Bnez(rs, _) => [None, Some(rs)],
             Inst::Nop => [None, None],
         }
     }
 }
 
-thread_local! {
-    static INST_ID_COUNTER: Cell<NonZeroU32> = Cell::new(unsafe { NonZeroU32::new_unchecked(1) });
-}
-
-/// Unique instruction identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct InstId(NonZeroU32);
-
-impl InstId {
-    /// Next unique instruction identifier.
-    pub fn next_id() -> Self {
-        INST_ID_COUNTER.with(|counter| {
-            let id = counter.get();
-            counter.set(NonZeroU32::new(id.get() + 1).unwrap());
-            Self(id)
-        })
-    }
-}
+utils::declare_u32_id!(InstId);
 
 /// Node in the instruction list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -463,18 +532,16 @@ impl InstNode {
 type InstList = KeyNodeList<InstId, InstNode, HashMap<InstId, InstNode>>;
 
 /// RISC-V basic block.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
-    /// Label of the basic block.
-    pub label: String,
     /// Instructions in the basic block.
     instructions: InstList,
 }
 
 impl Block {
     /// Create a new basic block.
-    pub fn new(label: String) -> Self {
+    pub fn new() -> Self {
         Self {
-            label,
             instructions: InstList::new(),
         }
     }
@@ -512,9 +579,10 @@ impl Block {
         self.instructions.back_key().copied()
     }
 
-    /// Provide a cursor with mutable access to the instruction with the given id.
-    pub fn cursor(&mut self, id: InstId) -> Cursor<'_> {
-        Cursor {
+    /// Provide a cursor with mutable access to the instruction with the given
+    /// id.
+    pub fn cursor_mut(&mut self, id: InstId) -> InstCursorMut<'_> {
+        InstCursorMut {
             cursor: self.instructions.cursor_mut(id),
         }
     }
@@ -525,9 +593,14 @@ impl Block {
     }
 }
 
+impl Default for Block {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}:", self.label)?;
         for node in self.instructions.nodes() {
             writeln!(f, "    {}", node.inst)?;
         }
@@ -536,11 +609,11 @@ impl Display for Block {
 }
 
 /// Cursor with mutable access to an instruction in a basic block.
-pub struct Cursor<'a> {
+pub struct InstCursorMut<'a> {
     cursor: key_node_list::CursorMut<'a, InstId, InstNode, HashMap<InstId, InstNode>>,
 }
 
-impl<'a> Cursor<'a> {
+impl<'a> InstCursorMut<'a> {
     /// Check if the cursor is null.
     pub fn is_null(&self) -> bool {
         self.cursor.is_null()
@@ -573,11 +646,12 @@ impl<'a> Cursor<'a> {
         self.cursor.move_next();
     }
 
-    /// Get an iterator over the following instructions, not including the current instruction.
+    /// Get an iterator over the following instructions, not including the
+    /// current instruction.
     pub fn followings(&self) -> impl Iterator<Item = (InstId, Inst)> + '_ {
         let mut cursor = self.cursor.as_cursor();
         cursor.move_next();
-        Follow { cursor }
+        FollowInsts { cursor }
     }
 
     /// Insert a new instruction before the current instruction.
@@ -596,14 +670,16 @@ impl<'a> Cursor<'a> {
         id
     }
 
-    /// Remove the current instruction, and move the cursor to the next instruction.
+    /// Remove the current instruction, and move the cursor to the next
+    /// instruction.
     ///
     /// If the cursor is null, this function does nothing.
     pub fn remove_and_next(&mut self) {
         self.cursor.remove_current();
     }
 
-    /// Remove the current instruction, and move the cursor to the previous instruction.
+    /// Remove the current instruction, and move the cursor to the previous
+    /// instruction.
     ///
     /// If the cursor is null, this function does nothing.
     pub fn remove_and_prev(&mut self) {
@@ -614,11 +690,11 @@ impl<'a> Cursor<'a> {
     }
 }
 
-struct Follow<'a> {
+struct FollowInsts<'a> {
     cursor: key_node_list::Cursor<'a, InstId, InstNode, HashMap<InstId, InstNode>>,
 }
 
-impl Iterator for Follow<'_> {
+impl Iterator for FollowInsts<'_> {
     type Item = (InstId, Inst);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -633,12 +709,44 @@ impl Iterator for Follow<'_> {
     }
 }
 
+utils::declare_u32_id!(BlockId);
+
+impl Display for BlockId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, ".L{}", self.0)
+    }
+}
+
+/// Node in the instruction list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockNode {
+    pub block: Block,
+    prev: Option<BlockId>,
+    next: Option<BlockId>,
+}
+
+impl_node!(BlockNode { Key = BlockId, prev = prev, next = next });
+
+impl BlockNode {
+    /// Create a new instruction node.
+    pub fn new(block: Block) -> Self {
+        Self {
+            block,
+            prev: None,
+            next: None,
+        }
+    }
+}
+
+type BlockList = KeyNodeList<BlockId, BlockNode, HashMap<BlockId, BlockNode>>;
+
 /// RISC-V function.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Function {
     /// Name of the function.
     pub name: String,
     /// Basic blocks in the function.
-    pub blocks: Vec<Block>,
+    blocks: BlockList,
 }
 
 impl Function {
@@ -646,13 +754,20 @@ impl Function {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            blocks: Vec::new(),
+            blocks: BlockList::new(),
         }
     }
 
     /// Add a basic block to the function.
-    pub fn push(&mut self, block: Block) {
-        self.blocks.push(block);
+    pub fn push(&mut self, id: BlockId, block: Block) -> BlockId {
+        let node = BlockNode::new(block);
+        self.blocks.push_back(id, node).unwrap();
+        id
+    }
+
+    /// Get the basic block with the given id.
+    pub fn get(&self, id: BlockId) -> Option<&Block> {
+        self.blocks.node(&id).map(|node| &node.block)
     }
 
     /// Number of basic blocks in the function.
@@ -665,14 +780,21 @@ impl Function {
         self.blocks.is_empty()
     }
 
-    /// Create a new block with a unique label.
-    pub fn new_block(&self) -> Block {
-        let label = if !self.is_empty() {
-            format!("{}{}", self.name, self.len())
-        } else {
-            self.name.clone()
-        };
-        Block::new(label)
+    /// Iterator over the basic blocks in the function.
+    pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> + '_ {
+        self.blocks.iter().map(|(&id, node)| (id, &node.block))
+    }
+
+    /// Provide a cursor to the basic block with the given id.
+    pub fn cursor(&self, id: BlockId) -> BlockCursor<'_> {
+        BlockCursor {
+            cursor: self.blocks.cursor(id),
+        }
+    }
+
+    /// The first basic block id in the function.
+    pub fn entry(&self) -> Option<BlockId> {
+        self.blocks.front_key().copied()
     }
 }
 
@@ -680,10 +802,44 @@ impl Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "    .text")?;
         writeln!(f, "    .globl {}", self.name)?;
-        for block in &self.blocks {
+        writeln!(f, "{}:", self.name)?;
+        for (id, block) in self.iter() {
+            writeln!(f, "{}:", id)?;
             write!(f, "{}", block)?;
         }
         Ok(())
+    }
+}
+
+/// Cursor to a basic block in a function.
+pub struct BlockCursor<'a> {
+    cursor: key_node_list::Cursor<'a, BlockId, BlockNode, HashMap<BlockId, BlockNode>>,
+}
+
+impl<'a> BlockCursor<'a> {
+    /// Check if the cursor is null.
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
+
+    /// Get the basic block id.
+    pub fn id(&self) -> Option<BlockId> {
+        self.cursor.key().copied()
+    }
+
+    /// Get the basic block.
+    pub fn block(&self) -> Option<&Block> {
+        self.cursor.node().map(|node| &node.block)
+    }
+
+    /// Move the cursor to the previous basic block.
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
+
+    /// Move the cursor to the next basic block.
+    pub fn next(&mut self) {
+        self.cursor.move_next();
     }
 }
 

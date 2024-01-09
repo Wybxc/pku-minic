@@ -4,6 +4,7 @@ use koopa::ir::{
     layout::BasicBlockNode,
     BasicBlock, FunctionData, Value,
 };
+use miette::Result;
 
 use crate::ast;
 
@@ -12,7 +13,6 @@ pub struct LayoutBuilder<'a> {
     func: &'a mut FunctionData,
     current: BasicBlock,
     rtype: ast::FuncType,
-    new_bb: Option<Option<String>>,
 }
 
 impl<'a> LayoutBuilder<'a> {
@@ -27,38 +27,34 @@ impl<'a> LayoutBuilder<'a> {
             func,
             current: entry,
             rtype,
-            new_bb: None,
         }
     }
 
     /// Function data.
-    pub fn func(&mut self) -> &mut FunctionData {
-        self.func
+    pub fn func_mut(&mut self) -> &mut FunctionData { self.func }
+
+    /// Basic block node.
+    pub fn bb_mut(&mut self, bb: BasicBlock) -> &mut BasicBlockNode {
+        self.func.layout_mut().bb_mut(bb)
     }
 
-    /// Current basic block layout.
-    pub fn current(&mut self) -> &mut BasicBlockNode {
-        self.func.layout_mut().bb_mut(self.current)
-    }
+    /// Current basic block id.
+    pub fn current(&self) -> BasicBlock { self.current }
+
+    /// Current basic block node.
+    pub fn current_bb_mut(&mut self) -> &mut BasicBlockNode { self.bb_mut(self.current) }
 
     /// Dataflow graph.
-    pub fn dfg(&self) -> &DataFlowGraph {
-        self.func.dfg()
-    }
+    pub fn dfg(&self) -> &DataFlowGraph { self.func.dfg() }
 
     /// Dataflow graph.
-    pub fn dfg_mut(&mut self) -> &mut DataFlowGraph {
-        self.func.dfg_mut()
-    }
+    pub fn dfg_mut(&mut self) -> &mut DataFlowGraph { self.func.dfg_mut() }
 
     /// Push an instruction to the current basic block.
     ///
     /// Return the instruction value.
     pub fn push_inst(&mut self, inst: Value) -> Value {
-        // Open a new basic block if needed.
-        self.try_open_bb();
-
-        self.current()
+        self.current_bb_mut()
             .insts_mut()
             .push_key_back(inst)
             .expect("instruction id conflict");
@@ -69,10 +65,7 @@ impl<'a> LayoutBuilder<'a> {
     ///
     /// Return the last instruction value.
     pub fn push_insts(&mut self, insts: impl IntoIterator<Item = Value>) -> Value {
-        // Open a new basic block if needed.
-        self.try_open_bb();
-
-        let inst_list = self.current().insts_mut();
+        let inst_list = self.current_bb_mut().insts_mut();
         for inst in insts.into_iter() {
             inst_list
                 .push_key_back(inst)
@@ -81,52 +74,51 @@ impl<'a> LayoutBuilder<'a> {
         inst_list.back_key().copied().unwrap()
     }
 
-    /// Open a new basic block.
-    fn try_open_bb(&mut self) {
-        if let Some(name) = self.new_bb.take() {
-            let bb = self.dfg_mut().new_bb().basic_block(name);
-            self.func
-                .layout_mut()
-                .bbs_mut()
-                .push_key_back(bb)
-                .expect("basic block id conflict");
-            self.current = bb;
+    /// Terminate the current basic block.
+    ///
+    /// If the current basic block is not terminated, insert a default
+    /// terminator.
+    pub fn terminate_current_bb(&mut self) {
+        let insts = self.current_bb_mut().insts_mut();
+        let last_inst = insts.back_key().copied();
+        if last_inst.is_none()
+            || last_inst.is_some_and(|inst| !crate::utils::is_terminator(self.dfg().value(inst)))
+        {
+            let dfg = self.func.dfg_mut();
+            let value = self.rtype.default_value(dfg);
+            let inst = dfg.new_value().ret(Some(value));
+            self.push_inst(inst);
         }
     }
 
-    /// Close the current basic block.
-    fn try_close_bb(&mut self) {
-        if self.new_bb.is_none() {
-            // Check if the current basic block is terminated.
-            // If not, add a return instruction.
-            let insts = self.current().insts_mut();
-            let last_inst = insts.back_key().copied();
-            if last_inst.is_none()
-                || last_inst
-                    .is_some_and(|inst| !crate::irutils::is_terminator(self.dfg().value(inst)))
-            {
-                let dfg = self.func.dfg_mut();
-                let value = self.rtype.default_value(dfg);
-                let inst = dfg.new_value().ret(Some(value));
-                self.push_inst(inst);
-            }
-        }
-    }
-
-    /// Open a new basic block, return the old one.
+    /// Create a new empty basic block.
     pub fn new_bb(&mut self, name: Option<String>) -> BasicBlock {
-        // Close the current basic block.
-        self.try_close_bb();
-
-        // Open a new basic block.
-        self.new_bb = Some(name);
-        self.current
+        let bb = self.dfg_mut().new_bb().basic_block(name);
+        self.func
+            .layout_mut()
+            .bbs_mut()
+            .push_key_back(bb)
+            .expect("basic block id conflict");
+        bb
     }
-}
 
-impl Drop for LayoutBuilder<'_> {
-    fn drop(&mut self) {
-        // Close the current basic block.
-        self.try_close_bb();
+    /// Temporarily change the current basic block.
+    pub fn with_bb(
+        &mut self,
+        bb: BasicBlock,
+        f: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<()> {
+        let old = self.current;
+        self.current = bb;
+        f(self)?;
+        self.current = old;
+        Ok(())
     }
+
+    /// Switch current basic block.
+    ///
+    /// # Safety
+    /// The new basic block must not be terminated, and current basic block must
+    /// be terminated.
+    pub fn switch_bb(&mut self, bb: BasicBlock) { self.current = bb; }
 }

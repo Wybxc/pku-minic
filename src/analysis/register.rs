@@ -50,30 +50,29 @@
 //!
 //! ## TODO
 //!
-//! - Now we always spill the newest variable, which is not optimal.
-//!   We should spill the variable that will not be used for a long time.
-//! - We do not allocate a0, t0, t1, since they are reserved for return
-//!   value and temporary storage. However, we can use them if they are
-//!   not used in some time.
+//! - Now we always spill the newest variable, which is not optimal. We should
+//!   spill the variable that will not be used for a long time.
+//! - We do not allocate a0, t0, t1, since they are reserved for return value
+//!   and temporary storage. However, we can use them if they are not used in
+//!   some time.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use koopa::ir::{dfg::DataFlowGraph, FunctionData, Value, ValueKind};
+use koopa::ir::{FunctionData, Value};
 use miette::Result;
-
 #[allow(unused_imports)]
 use nolog::*;
 
-use super::riscv::RegId;
+#[allow(unused_imports)]
+use crate::utils;
 use crate::{
+    analysis::{dominators::Dominators, error::AnalysisError, liveliness::Liveliness},
     ast::Spanned,
     codegen::{
-        error::CodegenError,
         imm::i12,
-        riscv::{make_reg_set, RegSet},
+        riscv::{make_reg_set, RegId, RegSet},
     },
     irgen::metadata::FunctionMetadata,
-    irutils,
 };
 
 /// Storage for a value.
@@ -100,43 +99,23 @@ impl Storage {
     }
 }
 
+/// Register allocation.
 pub struct RegAlloc {
     map: HashMap<Value, Storage>,
     frame_size: i12,
 }
 
 impl RegAlloc {
-    pub fn new(func: &FunctionData, metadata: &FunctionMetadata) -> Result<Self> {
-        // Live variable analysis.
-        // Currently there is no control flow, so we can do it in a simple way.
-        // - live in: Which variables are live when entering a basic block?
-        // - live out: Which variables are dropped after the instruction?
-        let mut live_in = HashMap::new();
-        let mut live_out = HashMap::new();
-        for (&bb, node) in func.layout().bbs() {
-            live_in.insert(bb, HashSet::<Value>::new()); // Now there is only an entry block, so nothing is live in.
-
-            // In reverse order scan the instructions in a basic block,
-            // the last appearing variable is live out.
-            let insts = node.insts().keys().collect::<Vec<_>>();
-            let mut scanned = HashSet::new();
-            for &inst in insts.into_iter().rev() {
-                nolog::trace!(->[0] "VLA " => "analyzing `{}`", irutils::dbg_inst(inst, func.dfg()));
-                let mut ops = operand_vars(inst, func.dfg());
-                for op in ops.iter_mut() {
-                    if let Some(val) = op {
-                        if !scanned.insert(*val) {
-                            // The variable has been scanned, it will not die here.
-                            *op = None;
-                        } else {
-                            nolog::trace!("VLA " => "live out {}", irutils::ident_inst(*val, func.dfg()));
-                        }
-                    }
-                }
-
-                live_out.insert(inst, ops);
-            }
-        }
+    /// Analyse register allocation.
+    pub fn analyze(
+        liveliness: &Liveliness,
+        dominators: &Dominators,
+        func: &FunctionData,
+        metadata: &FunctionMetadata,
+    ) -> Result<Self> {
+        // Get live variables.
+        let live_in = &liveliness.live_in;
+        let live_out = &liveliness.live_out;
 
         // Linear scan.
         // We adopt a static method: once a variable is assigned a register,
@@ -144,8 +123,11 @@ impl RegAlloc {
         let mut map = HashMap::<Value, Storage>::new();
         let mut sp = 0; // Stack pointer.
 
-        // TODO: Basic blocks must in CFG topological order.
-        for (&bb, node) in func.layout().bbs() {
+        // Scan basic blocks in topological order.
+        let bbs = func.layout().bbs();
+        for bb in dominators.iter() {
+            let node = bbs.node(&bb).unwrap();
+
             // Free registers. Initially all registers are free, and we will
             // change the status while scanning the instructions.
             let mut free = LocalRegSet::full();
@@ -167,7 +149,7 @@ impl RegAlloc {
 
                 // Allocate registers for results.
                 let value = func.dfg().value(inst);
-                nolog::trace!(->[0] "REG " => "allocating for `{}`", irutils::dbg_inst(inst, func.dfg()));
+                trace!(->[0] "REG " => "allocating for `{}`", utils::dbg_inst(inst, func.dfg()));
                 if !value.ty().is_unit() {
                     // Not a unit type, allocate a register.
                     let try_reg = free.iter().next();
@@ -176,24 +158,24 @@ impl RegAlloc {
                         map.insert(inst, Storage::Reg(reg));
                         free.remove(reg);
 
-                        nolog::trace!(
+                        trace!(
                             "REG " => "allocate `{}` to `{reg}`",
-                            irutils::ident_inst(inst, func.dfg())
+                            utils::ident_inst(inst, func.dfg())
                         );
                     } else {
                         // No free register, spill a variable.
                         map.insert(
                             inst,
                             Storage::Slot(i12::try_from(sp).map_err(|_| {
-                                CodegenError::TooManyLocals {
+                                AnalysisError::TooManyLocals {
                                     span: metadata.name.span().into(),
                                 }
                             })?),
                         );
 
-                        nolog::trace!(
+                        trace!(
                             "REG " => "spill {} to stack sp+{sp}",
-                            irutils::ident_inst(inst, func.dfg())
+                            utils::ident_inst(inst, func.dfg())
                         );
 
                         sp += 4;
@@ -204,45 +186,15 @@ impl RegAlloc {
 
         // 16-byte align the stack.
         let frame_size = (sp + 15) & !15;
-        let frame_size = i12::try_from(frame_size).map_err(|_| CodegenError::TooManyLocals {
+        let frame_size = i12::try_from(frame_size).map_err(|_| AnalysisError::TooManyLocals {
             span: metadata.name.span().into(),
         })?;
         Ok(Self { map, frame_size })
     }
 
     /// Get storage of a value.
-    pub fn get(&self, value: Value) -> Storage {
-        self.map[&value]
-    }
+    pub fn get(&self, value: Value) -> Storage { self.map[&value] }
 
     /// Minimum size of stack frame, in bytes.
-    pub fn frame_size(&self) -> i12 {
-        self.frame_size
-    }
-}
-
-/// Get operands of an instruction, only return variables.
-fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
-    let is_var = |&v: &Value| !irutils::is_const(dfg.value(v));
-    match dfg.value(value).kind() {
-        ValueKind::Return(ret) => {
-            let val = ret.value().filter(is_var);
-            [val, None]
-        }
-        ValueKind::Binary(bin) => {
-            let lhs = bin.lhs();
-            let rhs = bin.rhs();
-            [Some(lhs).filter(is_var), Some(rhs).filter(is_var)]
-        }
-        ValueKind::Store(store) => {
-            let val = Some(store.value()).filter(is_var);
-            let ptr = Some(store.dest()).filter(is_var);
-            [val, ptr]
-        }
-        ValueKind::Load(load) => {
-            let addr = Some(load.src()).filter(is_var);
-            [addr, None]
-        }
-        _ => [None; 2],
-    }
+    pub fn frame_size(&self) -> i12 { self.frame_size }
 }

@@ -3,10 +3,11 @@
 
 use lalrpop_util::lalrpop_mod;
 
+pub mod analysis;
 pub mod ast;
 pub mod codegen;
 pub mod irgen;
-pub(crate) mod irutils;
+pub(crate) mod utils;
 
 lalrpop_mod!(sysy);
 
@@ -66,8 +67,8 @@ pub enum MinicParseError {
     Unknown,
 }
 
-/// Compile SysY source code to Koopa IR.
-pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, ProgramMetadata)> {
+/// Parse SysY source code to AST.
+pub fn parse(input: &str) -> Result<ast::CompUnit> {
     let ast = sysy::CompUnitParser::new().parse(input).map_err(|e| {
         use lalrpop_util::ParseError;
 
@@ -93,6 +94,12 @@ pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, Progr
             _ => MinicParseError::Unknown,
         }
     })?;
+    Ok(ast)
+}
+
+/// Compile SysY source code to Koopa IR.
+pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, ProgramMetadata)> {
+    let ast = parse(input)?;
     let ir = ast.build_ir()?;
     Ok(ir)
 }
@@ -101,10 +108,10 @@ pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, Progr
 pub fn codegen(
     ir: koopa::ir::Program,
     metadata: &ProgramMetadata,
-    opt_level: u8,
 ) -> Result<codegen::riscv::Program> {
     use codegen::Codegen;
 
-    let program = Codegen(&ir).generate(metadata, opt_level)?;
+    let mut analyzer = analysis::Analyzer::new(&ir, metadata);
+    let program = Codegen(&ir).generate(&mut analyzer)?;
     Ok(program)
 }
