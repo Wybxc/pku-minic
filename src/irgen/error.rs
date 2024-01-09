@@ -30,4 +30,20 @@ pub enum CompileError {
         #[label("cannot assign to constant")]
         span: SourceSpan,
     },
+
+    /// break statement not within a loop
+    #[error("break statement not within a loop")]
+    #[diagnostic(code(minic::break_not_in_loop))]
+    BreakNotInLoop {
+        #[label("break statement not within a loop")]
+        span: SourceSpan,
+    },
+
+    /// continue statement not within a loop
+    #[error("continue statement not within a loop")]
+    #[diagnostic(code(minic::continue_not_in_loop))]
+    ContinueNotInLoop {
+        #[label("continue statement not within a loop")]
+        span: SourceSpan,
+    },
 }

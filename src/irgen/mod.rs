@@ -7,11 +7,13 @@ use crate::{
     ast,
     ast::Spanned,
     irgen::{
+        context::Context,
         layout::LayoutBuilder,
         metadata::{FunctionMetadata, ProgramMetadata},
     },
 };
 
+mod context;
 mod error;
 mod layout;
 pub mod metadata;
@@ -80,8 +82,12 @@ impl ast::FuncDef {
         let func_metadata = FunctionMetadata::new(self.ident);
         metadata.functions.insert(func, func_metadata);
 
+        let mut context = Context::new();
         let mut layout = LayoutBuilder::new(program.func_mut(func), self.func_type.node);
-        let terminated = self.block.node.build_ir_in(symtable, &mut layout)?;
+        let terminated = self
+            .block
+            .node
+            .build_ir_in(symtable, &mut context, &mut layout)?;
         if !terminated.is_terminated() {
             layout.terminate_current_bb();
         }
@@ -111,6 +117,7 @@ impl ast::Block {
     pub fn build_ir_in(
         self,
         symtable: &mut SymbolTable,
+        context: &mut Context,
         layout: &mut LayoutBuilder,
     ) -> Result<Terminated> {
         let mut terminated = Terminated::new(false);
@@ -119,7 +126,7 @@ impl ast::Block {
             if terminated.is_terminated() {
                 break;
             }
-            terminated = item.build_ir_in(symtable, layout)?;
+            terminated = item.build_ir_in(symtable, context, layout)?;
         }
         symtable.pop();
         Ok(terminated)
@@ -131,6 +138,7 @@ impl ast::BlockItem {
     pub fn build_ir_in(
         self,
         symtable: &mut SymbolTable,
+        context: &mut Context,
         layout: &mut LayoutBuilder,
     ) -> Result<Terminated> {
         match self {
@@ -138,7 +146,7 @@ impl ast::BlockItem {
                 decl.build_ir_in(symtable, layout)?;
                 Ok(false.into())
             }
-            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, layout),
+            ast::BlockItem::Stmt { stmt } => stmt.node.build_ir_in(symtable, context, layout),
         }
     }
 }
@@ -239,6 +247,7 @@ impl ast::Stmt {
     pub fn build_ir_in(
         self,
         symtable: &mut SymbolTable,
+        context: &mut Context,
         layout: &mut LayoutBuilder,
     ) -> Result<Terminated> {
         match self {
@@ -274,7 +283,7 @@ impl ast::Stmt {
                 }
                 Ok(false.into())
             }
-            ast::Stmt::Block { block } => block.node.build_ir_in(symtable, layout),
+            ast::Stmt::Block { block } => block.node.build_ir_in(symtable, context, layout),
             ast::Stmt::If { cond, then, els } => {
                 let cond = cond.build_ir_in(symtable, layout)?;
 
@@ -287,7 +296,11 @@ impl ast::Stmt {
                 };
 
                 layout.with_bb(then_bb, |layout| {
-                    if !then.node.build_ir_in(symtable, layout)?.is_terminated() {
+                    if !then
+                        .node
+                        .build_ir_in(symtable, context, layout)?
+                        .is_terminated()
+                    {
                         let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
                         layout.push_inst(jump_to_next);
                     }
@@ -296,7 +309,11 @@ impl ast::Stmt {
 
                 if let Some(els) = els {
                     layout.with_bb(els_bb, |layout| {
-                        if !els.node.build_ir_in(symtable, layout)?.is_terminated() {
+                        if !els
+                            .node
+                            .build_ir_in(symtable, context, layout)?
+                            .is_terminated()
+                        {
                             let jump_to_next = layout.dfg_mut().new_value().jump(next_bb);
                             layout.push_inst(jump_to_next);
                         }
@@ -314,6 +331,7 @@ impl ast::Stmt {
                 let cond_bb = layout.new_bb(None);
                 let body_bb = layout.new_bb(None);
                 let next_bb = layout.new_bb(None);
+                context.push_loop_boundary(cond_bb, next_bb);
 
                 let jump_to_cond = layout.dfg_mut().new_value().jump(cond_bb);
                 layout.push_inst(jump_to_cond);
@@ -325,7 +343,11 @@ impl ast::Stmt {
                 layout.push_inst(branch);
 
                 layout.with_bb(body_bb, |layout| {
-                    if !body.node.build_ir_in(symtable, layout)?.is_terminated() {
+                    if !body
+                        .node
+                        .build_ir_in(symtable, context, layout)?
+                        .is_terminated()
+                    {
                         let jump_to_cond = layout.dfg_mut().new_value().jump(cond_bb);
                         layout.push_inst(jump_to_cond);
                     }
@@ -334,10 +356,31 @@ impl ast::Stmt {
 
                 // Safety: `next_bb` is empty, and `branch` is the last instruction.
                 layout.switch_bb(next_bb);
+                context.pop_loop_boundary();
                 Ok(false.into())
             }
-            ast::Stmt::Break => todo!(),
-            ast::Stmt::Continue => todo!(),
+            ast::Stmt::Break(span) => {
+                let loop_boundary =
+                    context
+                        .current_loop_boundary()
+                        .ok_or(CompileError::BreakNotInLoop {
+                            span: span.span().into(),
+                        })?;
+                let jump = layout.dfg_mut().new_value().jump(loop_boundary.exit);
+                layout.push_inst(jump);
+                Ok(true.into())
+            }
+            ast::Stmt::Continue(span) => {
+                let loop_boundary =
+                    context
+                        .current_loop_boundary()
+                        .ok_or(CompileError::ContinueNotInLoop {
+                            span: span.span().into(),
+                        })?;
+                let jump = layout.dfg_mut().new_value().jump(loop_boundary.entry);
+                layout.push_inst(jump);
+                Ok(true.into())
+            }
         }
     }
 }

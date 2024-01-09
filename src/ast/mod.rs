@@ -282,8 +282,8 @@ pub enum Stmt {
         cond: Expr,
         body: Box<Span<Stmt>>,
     },
-    Break,
-    Continue,
+    Break(Span<()>),
+    Continue(Span<()>),
     Return {
         expr: Expr,
     },
@@ -382,6 +382,8 @@ impl NonSpanned for BinaryOp {}
 impl NonSpanned for i32 {}
 
 impl NonSpanned for String {}
+
+impl NonSpanned for () {}
 
 /// Syntax unit with span information.
 pub trait Spanned {

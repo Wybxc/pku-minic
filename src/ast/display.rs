@@ -143,10 +143,10 @@ impl Display for Stmt {
                 write!(f, "while ({})", cond)?;
                 write!(f, "{}", body)
             }
-            Stmt::Break => {
+            Stmt::Break(_) => {
                 writeln!(f, "break;")
             }
-            Stmt::Continue => {
+            Stmt::Continue(_) => {
                 writeln!(f, "continue;")
             }
             Stmt::Return { expr } => {
