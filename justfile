@@ -43,13 +43,13 @@ koopac: koopa
 autotest: autotest-koopa autotest-riscv autotest-perf
 
 autotest-koopa:
-    autotest -koopa -s {{level}} .
+    docker run -it --rm -v .:/root/compiler maxxing/compiler-dev autotest -koopa -s {{level}} /root/compiler/
 
 autotest-riscv:
-    autotest -riscv -s {{level}} .
+    docker run -it --rm -v .:/root/compiler maxxing/compiler-dev autotest -riscv -s {{level}} /root/compiler/
 
 autotest-perf:
-    autotest -perf -s {{level}} .
+    docker run -it --rm -v .:/root/compiler maxxing/compiler-dev autotest -perf -s {{level}} /root/compiler/
 
 doc:
     cargo doc --no-deps --document-private-items
