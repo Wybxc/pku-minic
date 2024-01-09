@@ -18,9 +18,13 @@ pub struct CompUnit {
 }
 
 impl Spanned for CompUnit {
-    fn start_pos(&self) -> usize { self.func_def.start_pos() }
+    fn start_pos(&self) -> usize {
+        self.func_def.start_pos()
+    }
 
-    fn end_pos(&self) -> usize { self.func_def.end_pos() }
+    fn end_pos(&self) -> usize {
+        self.func_def.end_pos()
+    }
 }
 
 /// Function Definition
@@ -36,9 +40,13 @@ pub struct FuncDef {
 }
 
 impl Spanned for FuncDef {
-    fn start_pos(&self) -> usize { self.func_type.start_pos() }
+    fn start_pos(&self) -> usize {
+        self.func_type.start_pos()
+    }
 
-    fn end_pos(&self) -> usize { self.block.end_pos() }
+    fn end_pos(&self) -> usize {
+        self.block.end_pos()
+    }
 }
 
 /// Function Type
@@ -144,9 +152,13 @@ pub struct ConstDef {
 }
 
 impl Spanned for ConstDef {
-    fn start_pos(&self) -> usize { self.ident.start_pos() }
+    fn start_pos(&self) -> usize {
+        self.ident.start_pos()
+    }
 
-    fn end_pos(&self) -> usize { self.expr.end_pos() }
+    fn end_pos(&self) -> usize {
+        self.expr.end_pos()
+    }
 }
 
 /// Variable Declaration
@@ -174,7 +186,9 @@ pub struct VarDef {
 }
 
 impl Spanned for VarDef {
-    fn start_pos(&self) -> usize { self.ident.start_pos() }
+    fn start_pos(&self) -> usize {
+        self.ident.start_pos()
+    }
 
     fn end_pos(&self) -> usize {
         match &self.init {
@@ -195,9 +209,13 @@ pub struct InitVal {
 }
 
 impl Spanned for InitVal {
-    fn start_pos(&self) -> usize { self.expr.start_pos() }
+    fn start_pos(&self) -> usize {
+        self.expr.start_pos()
+    }
 
-    fn end_pos(&self) -> usize { self.expr.end_pos() }
+    fn end_pos(&self) -> usize {
+        self.expr.end_pos()
+    }
 }
 
 /// Basic Type
@@ -223,9 +241,13 @@ pub struct ConstExpr {
 }
 
 impl Spanned for ConstExpr {
-    fn start_pos(&self) -> usize { self.expr.start_pos() }
+    fn start_pos(&self) -> usize {
+        self.expr.start_pos()
+    }
 
-    fn end_pos(&self) -> usize { self.expr.end_pos() }
+    fn end_pos(&self) -> usize {
+        self.expr.end_pos()
+    }
 }
 
 /// Statement
@@ -257,6 +279,10 @@ pub enum Stmt {
         cond: Expr,
         then: Box<Span<Stmt>>,
         els: Option<Box<Span<Stmt>>>,
+    },
+    While {
+        cond: Expr,
+        body: Box<Span<Stmt>>,
     },
     Return {
         expr: Expr,
@@ -366,7 +392,9 @@ pub trait Spanned {
     fn end_pos(&self) -> usize;
 
     /// Range of the syntax unit.
-    fn span(&self) -> Range<usize> { self.start_pos()..self.end_pos() }
+    fn span(&self) -> Range<usize> {
+        self.start_pos()..self.end_pos()
+    }
 }
 
 /// AST nodes that do not themselves contain span information
@@ -397,9 +425,13 @@ pub struct Span<T> {
 }
 
 impl<T> Spanned for Span<T> {
-    fn start_pos(&self) -> usize { self.start }
+    fn start_pos(&self) -> usize {
+        self.start
+    }
 
-    fn end_pos(&self) -> usize { self.end }
+    fn end_pos(&self) -> usize {
+        self.end
+    }
 }
 
 impl<T> std::fmt::Display for Span<T>

@@ -20,10 +20,14 @@ struct LocalEnv {
 
 impl LocalEnv {
     /// Declare a constant.
-    pub fn decl_const(&mut self, ident: String) { self.consts.insert(ident); }
+    pub fn decl_const(&mut self, ident: String) {
+        self.consts.insert(ident);
+    }
 
     /// Declare a variable.
-    pub fn decl_var(&mut self, ident: String) { self.vars.insert(ident); }
+    pub fn decl_var(&mut self, ident: String) {
+        self.vars.insert(ident);
+    }
 
     /// Generate an arbitrary free identifier.
     pub fn arb_free_lvar(self) -> impl Strategy<Value = String> {
@@ -132,7 +136,9 @@ fn arb_func_def() -> impl Strategy<Value = FuncDef> {
 }
 
 /// Generate an arbitrary function type.
-fn arb_func_type() -> impl Strategy<Value = FuncType> { Just(FuncType::Int) }
+fn arb_func_type() -> impl Strategy<Value = FuncType> {
+    Just(FuncType::Int)
+}
 
 #[derive(Debug)]
 struct BlockStrategy {
@@ -166,6 +172,7 @@ impl Strategy for BlockStrategy {
                 5, // stmt
                 2, // block
                 2, // if
+                1, // while
             ];
             if insts + 1 >= self.max_insts {
                 weights[3] = 0;
@@ -229,6 +236,17 @@ impl Strategy for BlockStrategy {
                         els: Some(Box::new(els)),
                     });
                 }
+                5 => {
+                    // while
+                    let cond = arb_expr(local.clone()).new_tree(runner)?;
+                    let body = BlockStrategy::new(local.clone(), (self.max_insts + 1) / 2)
+                        .new_tree(runner)?;
+                    insts += body.items_len();
+                    items.push(BlockItemValueTree::While {
+                        cond: Box::new(cond),
+                        body: Box::new(body),
+                    });
+                }
                 _ => unreachable!(),
             }
         }
@@ -268,6 +286,7 @@ impl BlockValueTree {
                 BlockItemValueTree::If { then, els, .. } => {
                     then.items_len() + els.as_ref().map(|els| els.items_len()).unwrap_or(0)
                 }
+                BlockItemValueTree::While { body, .. } => body.items_len(),
             })
             .sum()
     }
@@ -331,6 +350,10 @@ enum BlockItemValueTree {
         then: Box<BlockValueTree>,
         els: Option<Box<BlockValueTree>>,
     },
+    While {
+        cond: Box<dyn ValueTree<Value = Expr>>,
+        body: Box<BlockValueTree>,
+    },
 }
 
 impl ValueTree for BlockItemValueTree {
@@ -365,6 +388,18 @@ impl ValueTree for BlockItemValueTree {
                 }
                 .into_span(0, 0),
             },
+            BlockItemValueTree::While { cond, body } => BlockItem::Stmt {
+                stmt: Stmt::While {
+                    cond: cond.current(),
+                    body: Box::new(
+                        Stmt::Block {
+                            block: body.current().into_span(0, 0),
+                        }
+                        .into_span(0, 0),
+                    ),
+                }
+                .into_span(0, 0),
+            },
         }
     }
 
@@ -392,6 +427,12 @@ impl ValueTree for BlockItemValueTree {
                     false
                 }
             }
+            BlockItemValueTree::While { cond, body } => {
+                if cond.simplify() {
+                    return true;
+                }
+                body.simplify()
+            }
         }
     }
 
@@ -406,6 +447,12 @@ impl ValueTree for BlockItemValueTree {
                     }
                 }
                 if then.complicate() {
+                    return true;
+                }
+                cond.complicate()
+            }
+            BlockItemValueTree::While { cond, body } => {
+                if body.complicate() {
                     return true;
                 }
                 cond.complicate()
@@ -451,7 +498,9 @@ fn arb_init_val(local: LocalEnv) -> impl Strategy<Value = InitVal> {
     arb_expr(local).prop_map(|expr| InitVal { expr })
 }
 
-fn arb_btype() -> impl Strategy<Value = BType> { Just(BType::Int) }
+fn arb_btype() -> impl Strategy<Value = BType> {
+    Just(BType::Int)
+}
 
 fn arb_const_expr(local: LocalEnv) -> impl Strategy<Value = ConstExpr> {
     let s_number = arb_number_expr();
@@ -629,6 +678,7 @@ mod test {
                         .unwrap_or(0);
                     count_then + count_els
                 }
+                Stmt::While { body, .. } => count(&body.node, criteria),
                 _ => 0,
             }
         }
@@ -661,6 +711,11 @@ mod test {
                         .map(|els| count(&els.node, criteria))
                         .unwrap_or(0);
                     count_self + count_then + count_els
+                }
+                Stmt::While { body, .. } => {
+                    let count_self = criteria(stmt) as usize;
+                    let count_body = count(&body.node, criteria);
+                    count_self + count_body
                 }
                 _ => criteria(stmt) as usize,
             }
