@@ -310,7 +310,32 @@ impl ast::Stmt {
                 layout.switch_bb(next_bb);
                 Ok(false.into())
             }
-            ast::Stmt::While { .. } => todo!(),
+            ast::Stmt::While { cond, body } => {
+                let cond_bb = layout.new_bb(None);
+                let body_bb = layout.new_bb(None);
+                let next_bb = layout.new_bb(None);
+
+                let jump_to_cond = layout.dfg_mut().new_value().jump(cond_bb);
+                layout.push_inst(jump_to_cond);
+                // Safety: `cond_bb` is empty, and `into_cond` is the last instruction.
+                layout.switch_bb(cond_bb);
+
+                let cond = cond.build_ir_in(symtable, layout)?;
+                let branch = layout.dfg_mut().new_value().branch(cond, body_bb, next_bb);
+                layout.push_inst(branch);
+
+                layout.with_bb(body_bb, |layout| {
+                    if !body.node.build_ir_in(symtable, layout)?.is_terminated() {
+                        let jump_to_cond = layout.dfg_mut().new_value().jump(cond_bb);
+                        layout.push_inst(jump_to_cond);
+                    }
+                    Ok(())
+                })?;
+
+                // Safety: `next_bb` is empty, and `branch` is the last instruction.
+                layout.switch_bb(next_bb);
+                Ok(false.into())
+            }
         }
     }
 }
