@@ -85,6 +85,8 @@ MatchedIfStmt: Span<Stmt> = {
     cond,
     body: Box::new(body),
   }.into_span(start, end),
+  <start:@L> "break" ";" <end:@R> => Stmt::Break.into_span(start, end),
+  <start:@L> "continue" ";" <end:@R> => Stmt::Continue.into_span(start, end),
   <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end)
 };
 

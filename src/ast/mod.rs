@@ -284,6 +284,8 @@ pub enum Stmt {
         cond: Expr,
         body: Box<Span<Stmt>>,
     },
+    Break,
+    Continue,
     Return {
         expr: Expr,
     },

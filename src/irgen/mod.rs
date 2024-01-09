@@ -336,6 +336,8 @@ impl ast::Stmt {
                 layout.switch_bb(next_bb);
                 Ok(false.into())
             }
+            ast::Stmt::Break => todo!(),
+            ast::Stmt::Continue => todo!(),
         }
     }
 }
