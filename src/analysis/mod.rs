@@ -3,13 +3,15 @@
 use std::{collections::HashMap, rc::Rc};
 
 use koopa::ir::{Function, Program};
-use miette::Result;
 #[allow(unused_imports)]
 use nolog::*;
 
 use crate::{
     analysis::{
-        cfg::ControlFlowGraph, dominators::Dominators, liveliness::Liveliness, register::RegAlloc,
+        cfg::ControlFlowGraph,
+        dominators::Dominators,
+        liveliness::Liveliness,
+        // register::RegAlloc,
     },
     irgen::metadata::ProgramMetadata,
 };
@@ -18,9 +20,10 @@ pub mod cfg;
 pub mod dominators;
 pub mod error;
 pub mod liveliness;
-pub mod register;
+// pub mod register;
 
 /// Program analyser.
+#[allow(dead_code)]
 pub struct Analyzer<'a> {
     program: &'a Program,
     metadata: &'a ProgramMetadata,
@@ -42,7 +45,9 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Get the program being analysed.
-    pub fn program(&self) -> &Program { self.program }
+    pub fn program(&self) -> &Program {
+        self.program
+    }
 
     /// Analyse the control flow graph of a function.
     ///
@@ -91,18 +96,18 @@ impl<'a> Analyzer<'a> {
             .clone()
     }
 
-    /// Analyse register allocation of a function.
-    ///
-    /// Note: this analysis does not have a cache.
-    pub fn analyze_register_alloc(&mut self, func: Function) -> Result<RegAlloc> {
-        trace!(->[0] "MGR " => "Analyzing register allocation of {:?}", func);
-        let liveliness = self.analyze_liveliness(func);
-        let dominators = self.analyze_dominators(func);
-        RegAlloc::analyze(
-            liveliness.as_ref(),
-            dominators.as_ref(),
-            self.program.func(func),
-            &self.metadata.functions[&func],
-        )
-    }
+    // /// Analyse register allocation of a function.
+    // ///
+    // /// Note: this analysis does not have a cache.
+    // pub fn analyze_register_alloc(&mut self, func: Function) -> Result<RegAlloc>
+    // {     trace!(->[0] "MGR " => "Analyzing register allocation of {:?}",
+    // func);     let liveliness = self.analyze_liveliness(func);
+    //     let dominators = self.analyze_dominators(func);
+    //     RegAlloc::analyze(
+    //         liveliness.as_ref(),
+    //         dominators.as_ref(),
+    //         self.program.func(func),
+    //         &self.metadata.functions[&func],
+    //     )
+    // }
 }

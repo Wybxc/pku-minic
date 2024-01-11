@@ -209,9 +209,7 @@ impl Expr {
 }
 
 impl Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt_with_prec(f, 15)
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.fmt_with_prec(f, 15) }
 }
 
 impl Display for CallExpr {
@@ -260,7 +258,5 @@ impl Display for BinaryOp {
 pub struct Displayable<T>(pub T);
 
 impl<T: Display> Debug for Displayable<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.0) }
 }

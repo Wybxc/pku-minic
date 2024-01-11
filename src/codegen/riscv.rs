@@ -2,8 +2,14 @@
 //!
 //! This module contains types for representing RISC-V instructions and
 //! programs.
+//!
+//! # Pseudo instructions and registers
+//!
+//! There are some pseudo instructions and registers, which are used for
+//! convenience in code generation. Pseudo instructions and registers are
+//! erased in the final code generation phase.
 
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, num::NonZeroU32, sync::atomic::AtomicU16};
 
 use key_node_list::{impl_node, KeyNodeList};
 
@@ -11,6 +17,8 @@ use super::imm::i12;
 use crate::utils;
 
 /// RISC-V register.
+///
+/// There is a pseudo register type, which is used for temporaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(dead_code, missing_docs)]
@@ -47,6 +55,24 @@ pub enum RegId {
     S9,
     S10,
     S11,
+    Pseudo(PseudoReg),
+}
+
+/// Pseudo register.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PseudoReg(u16);
+
+impl PseudoReg {
+    /// Allocate a new pseudo register.
+    pub fn next() -> Self {
+        static COUNTER: AtomicU16 = AtomicU16::new(0);
+        let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self(id)
+    }
+}
+
+impl Display for PseudoReg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "R{}", self.0) }
 }
 
 impl Display for RegId {
@@ -84,70 +110,8 @@ impl Display for RegId {
             RegId::S9 => write!(f, "s9"),
             RegId::S10 => write!(f, "s10"),
             RegId::S11 => write!(f, "s11"),
+            RegId::Pseudo(i) => write!(f, "{}", i),
         }
-    }
-}
-
-/// A set of registers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RegSet<const MASK: u32 = { u32::MAX }> {
-    bitset: u32,
-}
-
-macro_rules! make_reg_set {
-    ($($reg:ident),+) => {
-        {
-            let mut set = 0u32;
-            $(set |= 1 << RegId::$reg as u32;)*
-            set
-        }
-    };
-}
-
-pub(crate) use make_reg_set;
-
-impl<const MASK: u32> RegSet<MASK> {
-    /// Create a new empty register set.
-    pub const fn new() -> Self {
-        Self { bitset: 0 }
-    }
-
-    /// Create a register set from a bitset.
-    pub const fn from_bitset(bitset: u32) -> Self {
-        Self { bitset }
-    }
-
-    /// Create a full register set.
-    pub const fn full() -> Self {
-        Self { bitset: MASK }
-    }
-
-    /// Insert a register into the set.
-    pub fn insert(&mut self, reg: RegId) {
-        self.bitset |= 1 << reg as u32;
-        self.bitset &= MASK;
-    }
-
-    /// Remove a register from the set.
-    pub fn remove(&mut self, reg: RegId) {
-        self.bitset &= !(1 << reg as u32);
-    }
-
-    /// Check if the set contains a register.
-    pub fn contains(&self, reg: RegId) -> bool {
-        self.bitset & (1 << reg as u32) != 0
-    }
-
-    /// Get an iterator over the registers in the set.
-    pub fn iter(&self) -> impl Iterator<Item = RegId> + '_ {
-        (0..32u8).filter_map(move |i| {
-            if self.bitset & (1 << i) != 0 {
-                // SAFETY: `i` is in the range of `RegId`.
-                Some(unsafe { std::mem::transmute(i) })
-            } else {
-                None
-            }
-        })
     }
 }
 
@@ -298,6 +262,25 @@ pub enum Inst {
     // --------------------
     /// Nope.
     Nop,
+
+    // Pseudo instructions
+    // --------------------
+    /// Pseudo instructions.
+    Pseudo(PseudoInst),
+}
+
+/// Pseudo instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
+pub enum PseudoInst {
+    /// Allocate stack frame: `addi sp, sp, -size`.
+    AllocFrame,
+    /// Dispose stack frame: `addi sp, sp, size`.
+    DisposeFrame,
+    /// Save registers: `for reg in live_regs: sw reg, offset(sp)`.
+    SaveRegs,
+    /// Restore registers: `for reg in live_regs: lw reg, offset(sp)`.
+    RestoreRegs,
 }
 
 impl Display for Inst {
@@ -363,6 +346,18 @@ impl Display for Inst {
             Inst::Bne(rs1, rs2, label) => write!(f, "bne {}, {}, {}", rs1, rs2, label),
             Inst::Bnez(rs, label) => write!(f, "bnez {}, {}", rs, label),
             Inst::Nop => write!(f, "nop"),
+            Inst::Pseudo(inst) => write!(f, "{}", inst),
+        }
+    }
+}
+
+impl Display for PseudoInst {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PseudoInst::AllocFrame => write!(f, "@alloc_frame"),
+            PseudoInst::DisposeFrame => write!(f, "@dispose_frame"),
+            PseudoInst::SaveRegs => write!(f, "@save_regs"),
+            PseudoInst::RestoreRegs => write!(f, "@restore_regs"),
         }
     }
 }
@@ -431,13 +426,12 @@ impl Inst {
             Inst::Bne(_, _, _) => None,
             Inst::Bnez(_, _) => None,
             Inst::Nop => None,
+            Inst::Pseudo(_) => None,
         }
     }
 
     /// Get the source registers of the instruction.
-    pub fn source(mut self) -> [Option<RegId>; 2] {
-        self.source_mut().map(|r| r.copied())
-    }
+    pub fn source(mut self) -> [Option<RegId>; 2] { self.source_mut().map(|r| r.copied()) }
 
     /// Get the mutable source registers of the instruction.
     pub fn source_mut(&mut self) -> [Option<&mut RegId>; 2] {
@@ -502,6 +496,7 @@ impl Inst {
             Inst::Bne(rs1, rs2, _) => [Some(rs1), Some(rs2)],
             Inst::Bnez(rs, _) => [None, Some(rs)],
             Inst::Nop => [None, None],
+            Inst::Pseudo(_) => [None, None],
         }
     }
 }
@@ -560,24 +555,16 @@ impl Block {
     }
 
     /// The number of instructions in the basic block.
-    pub fn len(&self) -> usize {
-        self.instructions.len()
-    }
+    pub fn len(&self) -> usize { self.instructions.len() }
 
     /// Check if the basic block is empty.
-    pub fn is_empty(&self) -> bool {
-        self.instructions.is_empty()
-    }
+    pub fn is_empty(&self) -> bool { self.instructions.is_empty() }
 
     /// The first instruction id in the basic block.
-    pub fn front(&self) -> Option<InstId> {
-        self.instructions.front_key().copied()
-    }
+    pub fn front(&self) -> Option<InstId> { self.instructions.front_key().copied() }
 
     /// The last instruction id in the basic block.
-    pub fn back(&self) -> Option<InstId> {
-        self.instructions.back_key().copied()
-    }
+    pub fn back(&self) -> Option<InstId> { self.instructions.back_key().copied() }
 
     /// Provide a cursor with mutable access to the instruction with the given
     /// id.
@@ -594,9 +581,7 @@ impl Block {
 }
 
 impl Default for Block {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl Display for Block {
@@ -615,19 +600,13 @@ pub struct InstCursorMut<'a> {
 
 impl<'a> InstCursorMut<'a> {
     /// Check if the cursor is null.
-    pub fn is_null(&self) -> bool {
-        self.cursor.is_null()
-    }
+    pub fn is_null(&self) -> bool { self.cursor.is_null() }
 
     /// Get the instruction id.
-    pub fn id(&self) -> Option<InstId> {
-        self.cursor.key().cloned()
-    }
+    pub fn id(&self) -> Option<InstId> { self.cursor.key().cloned() }
 
     /// Get the instruction.
-    pub fn inst(&self) -> Option<Inst> {
-        self.cursor.node().map(|node| node.inst)
-    }
+    pub fn inst(&self) -> Option<Inst> { self.cursor.node().map(|node| node.inst) }
 
     /// Set the instruction. If the cursor is null, this function does nothing.
     pub fn set_inst(&mut self, inst: Inst) {
@@ -637,14 +616,10 @@ impl<'a> InstCursorMut<'a> {
     }
 
     /// Move the cursor to the previous instruction.
-    pub fn prev(&mut self) {
-        self.cursor.move_prev();
-    }
+    pub fn prev(&mut self) { self.cursor.move_prev(); }
 
     /// Move the cursor to the next instruction.
-    pub fn next(&mut self) {
-        self.cursor.move_next();
-    }
+    pub fn next(&mut self) { self.cursor.move_next(); }
 
     /// Get an iterator over the following instructions, not including the
     /// current instruction.
@@ -674,9 +649,7 @@ impl<'a> InstCursorMut<'a> {
     /// instruction.
     ///
     /// If the cursor is null, this function does nothing.
-    pub fn remove_and_next(&mut self) {
-        self.cursor.remove_current();
-    }
+    pub fn remove_and_next(&mut self) { self.cursor.remove_current(); }
 
     /// Remove the current instruction, and move the cursor to the previous
     /// instruction.
@@ -712,9 +685,7 @@ impl Iterator for FollowInsts<'_> {
 utils::declare_u32_id!(BlockId);
 
 impl Display for BlockId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, ".L{}", self.0)
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, ".L{}", self.0) }
 }
 
 /// Node in the instruction list.
@@ -745,6 +716,8 @@ type BlockList = KeyNodeList<BlockId, BlockNode, HashMap<BlockId, BlockNode>>;
 pub struct Function {
     /// Name of the function.
     pub name: String,
+    /// Frame size of the function.
+    pub frame_size: Option<NonZeroU32>,
     /// Basic blocks in the function.
     blocks: BlockList,
 }
@@ -754,6 +727,7 @@ impl Function {
     pub fn new(name: String) -> Self {
         Self {
             name,
+            frame_size: None,
             blocks: BlockList::new(),
         }
     }
@@ -771,14 +745,10 @@ impl Function {
     }
 
     /// Number of basic blocks in the function.
-    pub fn len(&self) -> usize {
-        self.blocks.len()
-    }
+    pub fn len(&self) -> usize { self.blocks.len() }
 
     /// Check if the function is empty.
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
-    }
+    pub fn is_empty(&self) -> bool { self.blocks.is_empty() }
 
     /// Iterator over the basic blocks in the function.
     pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> + '_ {
@@ -793,9 +763,7 @@ impl Function {
     }
 
     /// The first basic block id in the function.
-    pub fn entry(&self) -> Option<BlockId> {
-        self.blocks.front_key().copied()
-    }
+    pub fn entry(&self) -> Option<BlockId> { self.blocks.front_key().copied() }
 }
 
 impl Display for Function {
@@ -807,6 +775,7 @@ impl Display for Function {
             writeln!(f, "{}:", id)?;
             write!(f, "{}", block)?;
         }
+        writeln!(f)?;
         Ok(())
     }
 }
@@ -818,29 +787,19 @@ pub struct BlockCursor<'a> {
 
 impl<'a> BlockCursor<'a> {
     /// Check if the cursor is null.
-    pub fn is_null(&self) -> bool {
-        self.cursor.is_null()
-    }
+    pub fn is_null(&self) -> bool { self.cursor.is_null() }
 
     /// Get the basic block id.
-    pub fn id(&self) -> Option<BlockId> {
-        self.cursor.key().copied()
-    }
+    pub fn id(&self) -> Option<BlockId> { self.cursor.key().copied() }
 
     /// Get the basic block.
-    pub fn block(&self) -> Option<&Block> {
-        self.cursor.node().map(|node| &node.block)
-    }
+    pub fn block(&self) -> Option<&Block> { self.cursor.node().map(|node| &node.block) }
 
     /// Move the cursor to the previous basic block.
-    pub fn prev(&mut self) {
-        self.cursor.move_prev();
-    }
+    pub fn prev(&mut self) { self.cursor.move_prev(); }
 
     /// Move the cursor to the next basic block.
-    pub fn next(&mut self) {
-        self.cursor.move_next();
-    }
+    pub fn next(&mut self) { self.cursor.move_next(); }
 }
 
 /// RISC-V program.
@@ -858,15 +817,11 @@ impl Program {
     }
 
     /// Add a function to the program.
-    pub fn push(&mut self, function: Function) {
-        self.functions.push(function);
-    }
+    pub fn push(&mut self, function: Function) { self.functions.push(function); }
 }
 
 impl Default for Program {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl Display for Program {

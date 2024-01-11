@@ -24,14 +24,10 @@ impl SymbolTable {
     }
 
     /// Push a new scope.
-    pub fn push(&mut self) {
-        self.chain_map.push();
-    }
+    pub fn push(&mut self) { self.chain_map.push(); }
 
     /// Pop a scope.
-    pub fn pop(&mut self) {
-        self.chain_map.pop();
-    }
+    pub fn pop(&mut self) { self.chain_map.pop(); }
 
     /// Insert a symbol, return the old symbol in same scope if exists.
     ///
@@ -43,15 +39,11 @@ impl SymbolTable {
     }
 
     /// Get a symbol.
-    pub fn get_var(&self, ident: &str) -> Option<&Symbol> {
-        self.chain_map.get(ident)
-    }
+    pub fn get_var(&self, ident: &str) -> Option<&Symbol> { self.chain_map.get(ident) }
 }
 
 impl Default for SymbolTable {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 /// Chain map.
@@ -63,19 +55,13 @@ struct ChainMap<K: Eq + Hash, V> {
 
 impl<K: Eq + Hash, V> ChainMap<K, V> {
     /// Create a new chain map with no scopes.
-    fn new() -> Self {
-        Self { maps: vec![] }
-    }
+    fn new() -> Self { Self { maps: vec![] } }
 
     /// Push a new scope.
-    fn push(&mut self) {
-        self.maps.push(HashMap::new());
-    }
+    fn push(&mut self) { self.maps.push(HashMap::new()); }
 
     /// Pop a scope.
-    fn pop(&mut self) {
-        self.maps.pop();
-    }
+    fn pop(&mut self) { self.maps.pop(); }
 
     /// Insert a key-value pair, return the old value in same scope if exists.
     ///

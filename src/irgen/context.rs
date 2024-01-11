@@ -29,12 +29,8 @@ impl Context {
     }
 
     /// Pop a loop boundary.
-    pub fn pop_loop_boundary(&mut self) -> Option<LoopBoundary> {
-        self.loop_bounds.pop()
-    }
+    pub fn pop_loop_boundary(&mut self) -> Option<LoopBoundary> { self.loop_bounds.pop() }
 
     /// Get the current loop boundary.
-    pub fn current_loop_boundary(&self) -> Option<&LoopBoundary> {
-        self.loop_bounds.last()
-    }
+    pub fn current_loop_boundary(&self) -> Option<&LoopBoundary> { self.loop_bounds.last() }
 }
