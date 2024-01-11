@@ -9,7 +9,9 @@
 //! convenience in code generation. Pseudo instructions and registers are
 //! erased in the final code generation phase.
 
-use std::{collections::HashMap, fmt::Display, num::NonZeroU32, sync::atomic::AtomicU16};
+use std::{
+    cell::RefCell, collections::HashMap, fmt::Display, num::NonZeroU32, sync::atomic::AtomicU16,
+};
 
 use key_node_list::{impl_node, KeyNodeList};
 
@@ -72,7 +74,9 @@ impl PseudoReg {
 }
 
 impl Display for PseudoReg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "R{}", self.0) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "R{}", self.0)
+    }
 }
 
 impl Display for RegId {
@@ -111,6 +115,55 @@ impl Display for RegId {
             RegId::S10 => write!(f, "s10"),
             RegId::S11 => write!(f, "s11"),
             RegId::Pseudo(i) => write!(f, "{}", i),
+        }
+    }
+}
+
+/// Storage of a value.
+pub enum Storage {
+    /// Register.
+    Reg(RegId),
+    /// Bottom of the stack, for local variables.
+    Local(i12),
+    /// Top of the stack, for function arguments.
+    Arg(i12),
+    /// Below the stack, for function parameters.
+    Param(i12),
+}
+
+impl Storage {
+    /// Get the storage of a temporary register.
+    pub fn next_reg() -> Self {
+        Self::Reg(RegId::Pseudo(PseudoReg::next()))
+    }
+
+    /// Get the storage of function arguments.
+    pub fn arg(i: usize) -> Self {
+        match i {
+            0 => Self::Reg(RegId::A0),
+            1 => Self::Reg(RegId::A1),
+            2 => Self::Reg(RegId::A2),
+            3 => Self::Reg(RegId::A3),
+            4 => Self::Reg(RegId::A4),
+            5 => Self::Reg(RegId::A5),
+            6 => Self::Reg(RegId::A6),
+            7 => Self::Reg(RegId::A7),
+            _ => Self::Arg(i12::new((i as i32 - 8) * 4).unwrap()),
+        }
+    }
+
+    /// Get the storage of function parameters.
+    pub fn param(i: usize) -> Self {
+        match i {
+            0 => Self::Reg(RegId::A0),
+            1 => Self::Reg(RegId::A1),
+            2 => Self::Reg(RegId::A2),
+            3 => Self::Reg(RegId::A3),
+            4 => Self::Reg(RegId::A4),
+            5 => Self::Reg(RegId::A5),
+            6 => Self::Reg(RegId::A6),
+            7 => Self::Reg(RegId::A7),
+            _ => Self::Param(i12::new((i as i32 - 8) * 4).unwrap()),
         }
     }
 }
@@ -223,6 +276,8 @@ pub enum Inst {
     // --------------------
     /// Return.
     Ret,
+    /// Call.
+    Call(FunctionId),
     /// Jump.
     J(BlockId),
     /// Branch if equal.
@@ -281,6 +336,14 @@ pub enum PseudoInst {
     SaveRegs,
     /// Restore registers: `for reg in live_regs: lw reg, offset(sp)`.
     RestoreRegs,
+    /// Load stack bottom: `lw reg, offset(sp)`.
+    LoadFrameBottom(RegId, i12),
+    /// Load stack below: `lw reg, offset(sp)`.
+    LoadFrameBelow(RegId, i12),
+    /// Store stack bottom: `sw reg, offset(sp)`.
+    StoreFrameBottom(RegId, i12),
+    /// Store stack top: `sw reg, offset(sp)`.
+    StoreFrameTop(RegId, i12),
 }
 
 impl Display for Inst {
@@ -328,6 +391,7 @@ impl Display for Inst {
             Inst::Lbu(rd, imm, rs) => write!(f, "lbu {}, {}({})", rd, imm, rs),
             Inst::Lhu(rd, imm, rs) => write!(f, "lhu {}, {}({})", rd, imm, rs),
             Inst::Ret => write!(f, "ret"),
+            Inst::Call(func) => write!(f, "call {}", func.name().unwrap()),
             Inst::J(label) => write!(f, "j {}", label),
             Inst::Beq(rs1, rs2, label) => write!(f, "beq {}, {}, {}", rs1, rs2, label),
             Inst::Beqz(rs, label) => write!(f, "beqz {}, {}", rs, label),
@@ -358,6 +422,12 @@ impl Display for PseudoInst {
             PseudoInst::DisposeFrame => write!(f, "@dispose_frame"),
             PseudoInst::SaveRegs => write!(f, "@save_regs"),
             PseudoInst::RestoreRegs => write!(f, "@restore_regs"),
+            PseudoInst::LoadFrameBottom(rd, imm) => write!(f, "@load_stack_bottom {}, {}", rd, imm),
+            PseudoInst::LoadFrameBelow(rd, imm) => write!(f, "@load_stack_below {}, {}", rd, imm),
+            PseudoInst::StoreFrameBottom(rd, imm) => {
+                write!(f, "@store_stack_bottom {}, {}", rd, imm)
+            }
+            PseudoInst::StoreFrameTop(rd, imm) => write!(f, "@store_stack_top {}, {}", rd, imm),
         }
     }
 }
@@ -408,6 +478,7 @@ impl Inst {
             Inst::Lbu(rd, _, _) => Some(rd),
             Inst::Lhu(rd, _, _) => Some(rd),
             Inst::Ret => None,
+            Inst::Call(_) => None,
             Inst::J(_) => None,
             Inst::Beq(_, _, _) => None,
             Inst::Beqz(_, _) => None,
@@ -431,7 +502,9 @@ impl Inst {
     }
 
     /// Get the source registers of the instruction.
-    pub fn source(mut self) -> [Option<RegId>; 2] { self.source_mut().map(|r| r.copied()) }
+    pub fn source(mut self) -> [Option<RegId>; 2] {
+        self.source_mut().map(|r| r.copied())
+    }
 
     /// Get the mutable source registers of the instruction.
     pub fn source_mut(&mut self) -> [Option<&mut RegId>; 2] {
@@ -478,6 +551,7 @@ impl Inst {
             Inst::Lbu(_, _, rs) => [None, Some(rs)],
             Inst::Lhu(_, _, rs) => [None, Some(rs)],
             Inst::Ret => [None, None],
+            Inst::Call(_) => [None, None],
             Inst::J(_) => [None, None],
             Inst::Beq(rs1, rs2, _) => [Some(rs1), Some(rs2)],
             Inst::Beqz(rs, _) => [None, Some(rs)],
@@ -555,16 +629,24 @@ impl Block {
     }
 
     /// The number of instructions in the basic block.
-    pub fn len(&self) -> usize { self.instructions.len() }
+    pub fn len(&self) -> usize {
+        self.instructions.len()
+    }
 
     /// Check if the basic block is empty.
-    pub fn is_empty(&self) -> bool { self.instructions.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
+    }
 
     /// The first instruction id in the basic block.
-    pub fn front(&self) -> Option<InstId> { self.instructions.front_key().copied() }
+    pub fn front(&self) -> Option<InstId> {
+        self.instructions.front_key().copied()
+    }
 
     /// The last instruction id in the basic block.
-    pub fn back(&self) -> Option<InstId> { self.instructions.back_key().copied() }
+    pub fn back(&self) -> Option<InstId> {
+        self.instructions.back_key().copied()
+    }
 
     /// Provide a cursor with mutable access to the instruction with the given
     /// id.
@@ -581,7 +663,9 @@ impl Block {
 }
 
 impl Default for Block {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Display for Block {
@@ -600,13 +684,19 @@ pub struct InstCursorMut<'a> {
 
 impl<'a> InstCursorMut<'a> {
     /// Check if the cursor is null.
-    pub fn is_null(&self) -> bool { self.cursor.is_null() }
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
 
     /// Get the instruction id.
-    pub fn id(&self) -> Option<InstId> { self.cursor.key().cloned() }
+    pub fn id(&self) -> Option<InstId> {
+        self.cursor.key().cloned()
+    }
 
     /// Get the instruction.
-    pub fn inst(&self) -> Option<Inst> { self.cursor.node().map(|node| node.inst) }
+    pub fn inst(&self) -> Option<Inst> {
+        self.cursor.node().map(|node| node.inst)
+    }
 
     /// Set the instruction. If the cursor is null, this function does nothing.
     pub fn set_inst(&mut self, inst: Inst) {
@@ -616,10 +706,14 @@ impl<'a> InstCursorMut<'a> {
     }
 
     /// Move the cursor to the previous instruction.
-    pub fn prev(&mut self) { self.cursor.move_prev(); }
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
 
     /// Move the cursor to the next instruction.
-    pub fn next(&mut self) { self.cursor.move_next(); }
+    pub fn next(&mut self) {
+        self.cursor.move_next();
+    }
 
     /// Get an iterator over the following instructions, not including the
     /// current instruction.
@@ -649,7 +743,9 @@ impl<'a> InstCursorMut<'a> {
     /// instruction.
     ///
     /// If the cursor is null, this function does nothing.
-    pub fn remove_and_next(&mut self) { self.cursor.remove_current(); }
+    pub fn remove_and_next(&mut self) {
+        self.cursor.remove_current();
+    }
 
     /// Remove the current instruction, and move the cursor to the previous
     /// instruction.
@@ -685,7 +781,9 @@ impl Iterator for FollowInsts<'_> {
 utils::declare_u32_id!(BlockId);
 
 impl Display for BlockId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, ".L{}", self.0) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, ".L{}", self.0)
+    }
 }
 
 /// Node in the instruction list.
@@ -745,10 +843,14 @@ impl Function {
     }
 
     /// Number of basic blocks in the function.
-    pub fn len(&self) -> usize { self.blocks.len() }
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
 
     /// Check if the function is empty.
-    pub fn is_empty(&self) -> bool { self.blocks.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
 
     /// Iterator over the basic blocks in the function.
     pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> + '_ {
@@ -763,7 +865,9 @@ impl Function {
     }
 
     /// The first basic block id in the function.
-    pub fn entry(&self) -> Option<BlockId> { self.blocks.front_key().copied() }
+    pub fn entry(&self) -> Option<BlockId> {
+        self.blocks.front_key().copied()
+    }
 }
 
 impl Display for Function {
@@ -787,19 +891,49 @@ pub struct BlockCursor<'a> {
 
 impl<'a> BlockCursor<'a> {
     /// Check if the cursor is null.
-    pub fn is_null(&self) -> bool { self.cursor.is_null() }
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
 
     /// Get the basic block id.
-    pub fn id(&self) -> Option<BlockId> { self.cursor.key().copied() }
+    pub fn id(&self) -> Option<BlockId> {
+        self.cursor.key().copied()
+    }
 
     /// Get the basic block.
-    pub fn block(&self) -> Option<&Block> { self.cursor.node().map(|node| &node.block) }
+    pub fn block(&self) -> Option<&Block> {
+        self.cursor.node().map(|node| &node.block)
+    }
 
     /// Move the cursor to the previous basic block.
-    pub fn prev(&mut self) { self.cursor.move_prev(); }
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
 
     /// Move the cursor to the next basic block.
-    pub fn next(&mut self) { self.cursor.move_next(); }
+    pub fn next(&mut self) {
+        self.cursor.move_next();
+    }
+}
+
+utils::declare_u32_id!(FunctionId);
+
+thread_local! {
+    static FUNTION_NAMES: RefCell<HashMap<FunctionId, String>> = RefCell::new(HashMap::new());
+}
+
+impl FunctionId {
+    /// Set the name of the function.
+    pub fn set_name(&self, name: String) {
+        FUNTION_NAMES.with(|names| {
+            names.borrow_mut().insert(*self, name);
+        });
+    }
+
+    /// Get the name of the function.
+    pub fn name(&self) -> Option<String> {
+        FUNTION_NAMES.with(|names| names.borrow().get(self).cloned())
+    }
 }
 
 /// RISC-V program.
@@ -817,11 +951,15 @@ impl Program {
     }
 
     /// Add a function to the program.
-    pub fn push(&mut self, function: Function) { self.functions.push(function); }
+    pub fn push(&mut self, function: Function) {
+        self.functions.push(function);
+    }
 }
 
 impl Default for Program {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Display for Program {

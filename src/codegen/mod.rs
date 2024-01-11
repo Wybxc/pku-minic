@@ -10,9 +10,9 @@
 //!   + `load_xxx_to_reg` loads a value to a given register. This ensures that
 //!     the value will be stored in the given register.
 
-use std::{cell::RefCell, collections::HashMap};
+use std::collections::HashMap;
 
-use koopa::ir::{dfg::DataFlowGraph, BasicBlock, BinaryOp, Function, ValueKind};
+use koopa::ir::{dfg::DataFlowGraph, BasicBlock, BinaryOp, Function, Value, ValueKind};
 use miette::Result;
 
 mod builder;
@@ -25,7 +25,7 @@ use riscv::{Inst, RegId};
 
 use crate::{
     analysis::Analyzer,
-    codegen::riscv::{Block, BlockId, PseudoInst, PseudoReg},
+    codegen::riscv::{Block, BlockId, FunctionId, PseudoInst, PseudoReg, Storage},
     utils,
 };
 
@@ -37,9 +37,10 @@ impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
     pub fn generate(self, analyzer: &mut Analyzer) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
+        let mut func_map = HashMap::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            let func = Codegen(func_data).generate(analyzer, func)?;
+            let func = Codegen(func_data).generate(analyzer, func, &mut func_map)?;
             program.push(func);
         }
         Ok(program)
@@ -48,17 +49,41 @@ impl Codegen<&koopa::ir::Program> {
 
 impl Codegen<&koopa::ir::FunctionData> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, analyzer: &mut Analyzer, func: Function) -> Result<riscv::Function> {
+    pub fn generate(
+        self,
+        analyzer: &mut Analyzer,
+        func: Function,
+        func_map: &mut HashMap<Function, FunctionId>,
+    ) -> Result<riscv::Function> {
         // Register allocation.
         // let regs = analyzer.analyze_register_alloc(func)?;
         // Dominators tree.
         let dominators = analyzer.analyze_dominators(func);
 
+        // Function name.
+        let name = self.0.name()[1..].to_string();
+        let id = FunctionId::next_id();
+        id.set_name(name.clone());
+        func_map.insert(func, id);
+
         // Function builder.
-        let name = &self.0.name()[1..];
-        let mut func = riscv::Function::new(name.to_string());
+        let mut func = riscv::Function::new(name);
         let dfg = self.0.dfg();
         let bbs = self.0.layout().bbs();
+
+        // Value map.
+        let mut value_map: HashMap<_, _> = dfg
+            .values()
+            .keys()
+            .map(|&value| {
+                let storage = Storage::next_reg();
+                (value, storage)
+            })
+            .collect();
+        for (i, &value) in self.0.params().iter().enumerate() {
+            let storage = Storage::param(i);
+            value_map.insert(value, storage);
+        }
 
         // Basic blocks map.
         let bb_map: HashMap<_, _> = bbs
@@ -82,7 +107,7 @@ impl Codegen<&koopa::ir::FunctionData> {
                 block.push(Inst::Pseudo(PseudoInst::AllocFrame));
             }
             for &inst in node.insts().keys() {
-                Codegen(inst).generate(&mut block, dfg, &bb_map)?;
+                Codegen(inst).generate(&mut block, dfg, &value_map, &bb_map, func_map);
             }
             let block = block.build();
 
@@ -122,107 +147,109 @@ impl Codegen<koopa::ir::entities::Value> {
         self,
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
+        value_map: &HashMap<Value, Storage>,
         bb_map: &HashMap<BasicBlock, BlockId>,
-    ) -> Result<()> {
-        match dfg.value(self.0).kind() {
-            ValueKind::Integer(i) => {
-                let storage = self.storage();
-                if i.value() == 0 {
-                    block.push(Inst::Mv(storage, RegId::X0));
-                } else {
-                    block.push(Inst::Li(storage, i.value()));
-                }
-                Ok(())
-            }
+        func_map: &HashMap<Function, FunctionId>,
+    ) {
+        let value = dfg.value(self.0);
+        match value.kind() {
             ValueKind::Return(ret) => {
                 if let Some(val) = ret.value() {
                     // Load the return value to a0.
-                    let storage = Codegen(val).load(block, dfg);
+                    let storage = Codegen(val).load(block, dfg, value_map);
                     block.push(Inst::Mv(RegId::A0, storage));
                 }
                 block.push(Inst::Pseudo(PseudoInst::DisposeFrame));
                 block.push(Inst::Ret);
-                Ok(())
             }
             ValueKind::Binary(bin) => {
                 // Get the register that stores the result and the operands.
-                let res = self.storage();
-                let lhs = Codegen(bin.lhs()).load(block, dfg);
-                let rhs = Codegen(bin.rhs()).load(block, dfg);
+                let res = &value_map[&self.0];
+                let lhs = Codegen(bin.lhs()).load(block, dfg, value_map);
+                let rhs = Codegen(bin.rhs()).load(block, dfg, value_map);
 
-                if let Some(asm) = simple_bop_to_asm(bin.op(), res, lhs, rhs) {
-                    // Simple binary operations, such as add, sub, and, etc.
-                    block.push(asm);
-                } else {
-                    // Specially deal with eq and ne.
-                    match bin.op() {
-                        BinaryOp::Eq => {
-                            block.push(Inst::Xor(res, lhs, rhs));
-                            block.push(Inst::Seqz(res, res));
+                res.store_with(block, |block, res| {
+                    if let Some(asm) = simple_bop_to_asm(bin.op(), res, lhs, rhs) {
+                        // Simple binary operations, such as add, sub, and, etc.
+                        block.push(asm);
+                    } else {
+                        // Specially deal with eq and ne.
+                        match bin.op() {
+                            BinaryOp::Eq => {
+                                block.push(Inst::Xor(res, lhs, rhs));
+                                block.push(Inst::Seqz(res, res));
+                            }
+                            BinaryOp::NotEq => {
+                                block.push(Inst::Xor(res, lhs, rhs));
+                                block.push(Inst::Snez(res, res));
+                            }
+                            BinaryOp::Le => {
+                                block.push(Inst::Slt(res, rhs, lhs));
+                                block.push(Inst::Seqz(res, res));
+                            }
+                            BinaryOp::Ge => {
+                                block.push(Inst::Slt(res, lhs, rhs));
+                                block.push(Inst::Seqz(res, res));
+                            }
+                            _ => panic!("unexpected binary op: {:?}", bin.op()),
                         }
-                        BinaryOp::NotEq => {
-                            block.push(Inst::Xor(res, lhs, rhs));
-                            block.push(Inst::Snez(res, res));
-                        }
-                        BinaryOp::Le => {
-                            block.push(Inst::Slt(res, rhs, lhs));
-                            block.push(Inst::Seqz(res, res));
-                        }
-                        BinaryOp::Ge => {
-                            block.push(Inst::Slt(res, lhs, rhs));
-                            block.push(Inst::Seqz(res, res));
-                        }
-                        _ => panic!("unexpected binary op: {:?}", bin.op()),
                     }
-                }
-                Ok(())
+                });
             }
             ValueKind::Alloc(_) => {
                 // Nothing to do here. Arrays will be considered in the future.
-                Ok(())
             }
             ValueKind::Store(store) => {
-                let src = Codegen(store.value()).load(block, dfg);
-                let dest = Codegen(store.dest()).storage();
-                block.push(Inst::Mv(dest, src));
-                Ok(())
+                let src = Codegen(store.value()).load(block, dfg, value_map);
+                let dest = &value_map[&store.dest()];
+                dest.store(block, src);
             }
             ValueKind::Load(load) => {
-                let src = Codegen(load.src()).load(block, dfg);
-                let dest = self.storage();
-                block.push(Inst::Mv(dest, src));
-                Ok(())
+                let src = Codegen(load.src()).load(block, dfg, value_map);
+                let dest = &value_map[&self.0];
+                dest.store(block, src);
             }
             ValueKind::Branch(branch) => {
-                let cond = Codegen(branch.cond()).load(block, dfg);
+                let cond = Codegen(branch.cond()).load(block, dfg, value_map);
                 let then = bb_map[&branch.true_bb()];
                 let els = bb_map[&branch.false_bb()];
                 block.push(Inst::Beqz(cond, els));
                 block.push(Inst::J(then));
-                Ok(())
             }
             ValueKind::Jump(jump) => {
                 let target = bb_map[&jump.target()];
                 block.push(Inst::J(target));
-                Ok(())
+            }
+            ValueKind::Call(call) => {
+                let func = func_map[&call.callee()];
+                block.push(Inst::Pseudo(PseudoInst::SaveRegs));
+
+                let args = call.args();
+                for (i, &arg) in args.iter().enumerate() {
+                    let arg = Codegen(arg).load(block, dfg, value_map);
+                    let storage = Storage::arg(i);
+                    storage.store(block, arg);
+                }
+
+                block.push(Inst::Call(func));
+
+                if !value.ty().is_unit() {
+                    let res = &value_map[&self.0];
+                    res.store(block, RegId::A0);
+                }
+                block.push(Inst::Pseudo(PseudoInst::RestoreRegs));
             }
             _ => panic!("unexpected value kind: {:?}", dfg.value(self.0).kind()),
         }
     }
 
-    /// Get the storage of a value.
-    fn storage(&self) -> RegId {
-        thread_local! {
-            static VALUE_MAP: RefCell<HashMap<koopa::ir::entities::Value, RegId>> = RefCell::new(HashMap::new());
-        }
-        VALUE_MAP.with(|map| {
-            *map.borrow_mut()
-                .entry(self.0)
-                .or_insert_with(|| RegId::Pseudo(PseudoReg::next()))
-        })
-    }
-
-    fn load(&self, block: &mut BlockBuilder, dfg: &DataFlowGraph) -> RegId {
+    /// Load a value.
+    fn load(
+        &self,
+        block: &mut BlockBuilder,
+        dfg: &DataFlowGraph,
+        value_map: &HashMap<Value, Storage>,
+    ) -> RegId {
         let value = dfg.value(self.0);
         if utils::is_const(value) {
             match value.kind() {
@@ -230,7 +257,7 @@ impl Codegen<koopa::ir::entities::Value> {
                     if i.value() == 0 {
                         RegId::X0
                     } else {
-                        let reg = self.storage();
+                        let reg = RegId::Pseudo(PseudoReg::next());
                         block.push(Inst::Li(reg, i.value()));
                         reg
                     }
@@ -238,7 +265,62 @@ impl Codegen<koopa::ir::entities::Value> {
                 _ => panic!("unexpected const value kind: {:?}", value.kind()),
             }
         } else {
-            self.storage()
+            let storage = &value_map[&self.0];
+            storage.load(block)
+        }
+    }
+}
+
+impl Storage {
+    /// Load a value from the storage.
+    fn load(&self, block: &mut BlockBuilder) -> RegId {
+        match self {
+            Storage::Reg(reg) => *reg,
+            Storage::Local(offset) => {
+                let reg = RegId::Pseudo(PseudoReg::next());
+                block.push(Inst::Pseudo(PseudoInst::LoadFrameBottom(reg, *offset)));
+                reg
+            }
+            Storage::Arg(_) => panic!("cannot load from arg"),
+            Storage::Param(offset) => {
+                let reg = RegId::Pseudo(PseudoReg::next());
+                block.push(Inst::Pseudo(PseudoInst::LoadFrameBelow(reg, *offset)));
+                reg
+            }
+        }
+    }
+
+    /// Store a value to the storage.
+    fn store(&self, block: &mut BlockBuilder, value: RegId) {
+        match self {
+            Storage::Reg(reg) => {
+                block.push(Inst::Mv(*reg, value));
+            }
+            Storage::Local(offset) => {
+                block.push(Inst::Pseudo(PseudoInst::StoreFrameBottom(value, *offset)));
+            }
+            Storage::Arg(offset) => {
+                block.push(Inst::Pseudo(PseudoInst::StoreFrameTop(value, *offset)));
+            }
+            Storage::Param(_) => panic!("cannot store to param"),
+        }
+    }
+
+    /// Store a value to the storage.
+    fn store_with(
+        &self,
+        block: &mut BlockBuilder,
+        store_builder: impl FnOnce(&mut BlockBuilder, RegId),
+    ) {
+        match self {
+            Storage::Reg(reg) => {
+                store_builder(block, *reg);
+            }
+            _ => {
+                let reg = RegId::Pseudo(PseudoReg::next());
+                store_builder(block, reg);
+                self.store(block, reg);
+            }
         }
     }
 }

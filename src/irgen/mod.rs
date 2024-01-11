@@ -101,7 +101,8 @@ impl ast::FuncDef {
             let ty = dfg.value(value).ty().clone();
             let var = dfg.new_value().alloc(ty);
             dfg.set_value_name(var, Some(format!("%{}", name)));
-            layout.push_inst(var);
+            let store = dfg.new_value().store(value, var);
+            layout.push_insts([var, store]);
             if symtable.insert_var(name, Symbol::Var(var)).is_some() {
                 Err(CompileError::DuplicateParameter { span })?;
             }
