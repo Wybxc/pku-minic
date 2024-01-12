@@ -6,9 +6,12 @@
 
 use std::collections::HashMap;
 
-use koopa::ir::Function;
+use koopa::ir::{Function, FunctionData};
 
-use crate::ast::Span;
+use crate::{
+    ast::Span,
+    irgen::cfg::{ControlFlowGraph, Dominators},
+};
 
 /// Program metadata.
 pub struct ProgramMetadata {
@@ -26,16 +29,30 @@ impl ProgramMetadata {
 }
 
 impl Default for ProgramMetadata {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Function metadata.
 pub struct FunctionMetadata {
     /// Name of the function.
     pub name: Span<String>,
+    /// Control flow graph.
+    pub cfg: ControlFlowGraph,
+    /// Dominator tree.
+    pub dominators: Dominators,
 }
 
 impl FunctionMetadata {
     /// Create a new function metadata.
-    pub fn new(name: Span<String>) -> Self { Self { name } }
+    pub fn new(name: Span<String>, function: &FunctionData) -> Self {
+        let cfg = ControlFlowGraph::analyze(function);
+        let dominators = Dominators::analyze(&cfg);
+        Self {
+            name,
+            cfg,
+            dominators,
+        }
+    }
 }

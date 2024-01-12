@@ -24,8 +24,8 @@ use builder::BlockBuilder;
 use riscv::{Inst, RegId};
 
 use crate::{
-    analysis::Analyzer,
     codegen::riscv::{Block, BlockId, FunctionId, PseudoInst, PseudoReg, Storage},
+    irgen::metadata::{FunctionMetadata, ProgramMetadata},
     utils,
 };
 
@@ -35,12 +35,13 @@ pub struct Codegen<T>(pub T);
 
 impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, analyzer: &mut Analyzer) -> Result<riscv::Program> {
+    pub fn generate(self, metadata: &ProgramMetadata) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
         let mut func_map = HashMap::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            let func = Codegen(func_data).generate(analyzer, func, &mut func_map)?;
+            let metadata = &metadata.functions[&func];
+            let func = Codegen(func_data).generate(func, metadata, &mut func_map)?;
             program.push(func);
         }
         Ok(program)
@@ -51,15 +52,10 @@ impl Codegen<&koopa::ir::FunctionData> {
     /// Generate code from Koopa IR.
     pub fn generate(
         self,
-        analyzer: &mut Analyzer,
         func: Function,
+        metadata: &FunctionMetadata,
         func_map: &mut HashMap<Function, FunctionId>,
     ) -> Result<riscv::Function> {
-        // Register allocation.
-        // let regs = analyzer.analyze_register_alloc(func)?;
-        // Dominators tree.
-        let dominators = analyzer.analyze_dominators(func);
-
         // Function name.
         let name = self.0.name()[1..].to_string();
         let id = FunctionId::next_id();
@@ -95,7 +91,7 @@ impl Codegen<&koopa::ir::FunctionData> {
             .collect();
 
         // Generate code for the instruction.
-        for bb in dominators.iter() {
+        for bb in metadata.dominators.iter() {
             let node = bbs.node(&bb).unwrap();
             let id = bb_map[&bb];
             // if let Some(label) = dfg.bb(bb).name() {

@@ -13,6 +13,7 @@ use crate::{
     },
 };
 
+pub mod cfg;
 mod context;
 mod error;
 mod layout;
@@ -27,15 +28,21 @@ use symtable::{Symbol, SymbolTable};
 pub struct Terminated(bool);
 
 impl From<bool> for Terminated {
-    fn from(terminated: bool) -> Self { Terminated(terminated) }
+    fn from(terminated: bool) -> Self {
+        Terminated(terminated)
+    }
 }
 
 impl Terminated {
     /// Create a new `Terminated` with the given value.
-    pub fn new(b: bool) -> Self { Self(b) }
+    pub fn new(b: bool) -> Self {
+        Self(b)
+    }
 
     /// Whether the current basic block is terminated.
-    pub fn is_terminated(&self) -> bool { self.0 }
+    pub fn is_terminated(&self) -> bool {
+        self.0
+    }
 }
 
 impl ast::CompUnit {
@@ -73,16 +80,14 @@ impl ast::FuncDef {
         prog_metadata: &mut ProgramMetadata,
     ) -> Result<()> {
         let span = self.ident.span().into();
-        let metadata = FunctionMetadata::new(self.ident.clone());
         let kp_name = format!("@{}", self.ident.node);
         let params = self.params.iter().map(|p| p.build_ir()).collect();
         let ret_type = self.func_type.node.build_ir();
         let func = program.new_func(FunctionData::with_param_names(kp_name, params, ret_type));
-        prog_metadata.functions.insert(func, metadata);
 
         // add function to global symbol table
         if symtable
-            .insert_var(self.ident.node, Symbol::Func(func))
+            .insert_var(self.ident.node.clone(), Symbol::Func(func))
             .is_some()
         {
             Err(CompileError::FunctionDefinedTwice { span })?;
@@ -116,6 +121,9 @@ impl ast::FuncDef {
             layout.terminate_current_bb();
         }
         symtable.pop();
+
+        let metadata = FunctionMetadata::new(self.ident, program.func(func));
+        prog_metadata.functions.insert(func, metadata);
 
         Ok(())
     }
