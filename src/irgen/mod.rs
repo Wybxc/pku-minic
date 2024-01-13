@@ -97,7 +97,9 @@ impl ast::CompUnit {
                 ast::TopLevelItem::FuncDef(func_def) => {
                     func_def.build_ir_in(symtable, program, metadata)?;
                 }
-                ast::TopLevelItem::Decl(_) => todo!(),
+                ast::TopLevelItem::Decl(decl) => {
+                    decl.build_ir_global(symtable, program)?;
+                }
             }
         }
         Ok(())
@@ -235,6 +237,14 @@ impl ast::Decl {
             ast::Decl::Var(var_decl) => var_decl.node.build_ir_in(symtable, layout),
         }
     }
+
+    /// Build IR from AST for global variables.
+    pub fn build_ir_global(self, symtable: &mut SymbolTable, program: &mut Program) -> Result<()> {
+        match self {
+            ast::Decl::Const(const_decl) => const_decl.node.build_ir_in(symtable),
+            ast::Decl::Var(var_decl) => var_decl.node.build_ir_global(symtable, program),
+        }
+    }
 }
 
 impl ast::BType {
@@ -293,7 +303,14 @@ impl ast::VarDecl {
         for def in self.defs {
             def.build_ir_in(symtable, &self.ty.node, layout)?;
         }
+        Ok(())
+    }
 
+    /// Build IR from AST for global variables.
+    pub fn build_ir_global(self, symtable: &mut SymbolTable, program: &mut Program) -> Result<()> {
+        for def in self.defs {
+            def.build_ir_global(symtable, program, &self.ty.node)?;
+        }
         Ok(())
     }
 }
@@ -306,14 +323,14 @@ impl ast::VarDef {
         ty: &ast::BType,
         layout: &mut LayoutBuilder,
     ) -> Result<()> {
-        // Allocate a new variable.
+        // Check the type.
         let span = self.ident.span().into();
-        let dfg = layout.dfg_mut();
-
         if matches!(ty, ast::BType::Void) {
             Err(CompileError::VariableTypeVoid { span })?;
         }
 
+        // Allocate a new variable.
+        let dfg = layout.dfg_mut();
         let var = dfg.new_value().alloc(ty.build_ir());
         dfg.set_value_name(var, Some(format!("@{}", self.ident.node)));
         layout.push_inst(var);
@@ -324,6 +341,42 @@ impl ast::VarDef {
             let store = layout.dfg_mut().new_value().store(init, var);
             layout.push_inst(store);
         }
+
+        // Insert the variable into the symbol table.
+        if symtable
+            .insert_var(self.ident.node, Symbol::Var(var))
+            .is_some()
+        {
+            Err(CompileError::VariableDefinedTwice { span })?;
+        }
+
+        Ok(())
+    }
+
+    /// Build IR from AST for global variables.
+    pub fn build_ir_global(
+        self,
+        symtable: &mut SymbolTable,
+        program: &mut Program,
+        ty: &ast::BType,
+    ) -> Result<()> {
+        // Check the type.
+        let span = self.ident.span().into();
+        if matches!(ty, ast::BType::Void) {
+            Err(CompileError::VariableTypeVoid { span })?;
+        }
+
+        // Initialize the variable.
+        let init = if let Some(init) = self.init {
+            let value = init.expr.const_eval(symtable)?;
+            program.new_value().integer(value)
+        } else {
+            program.new_value().zero_init(ty.build_ir())
+        };
+
+        // Allocate a new variable.
+        let var = program.new_value().global_alloc(init);
+        program.set_value_name(var, Some(format!("@{}", self.ident.node)));
 
         // Insert the variable into the symbol table.
         if symtable
