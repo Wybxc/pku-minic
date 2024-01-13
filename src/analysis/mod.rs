@@ -1,6 +1,6 @@
 //! Program analysis.
 
-use std::{collections::HashMap, rc::Rc};
+use std::{cell::OnceCell, collections::HashMap, rc::Rc};
 
 use koopa::ir::{Function, Program};
 use miette::Result;
@@ -10,7 +10,7 @@ use nolog::*;
 use crate::{
     analysis::{
         call::FunctionCalls, cfg::ControlFlowGraph, dominators::Dominators, frame::Frame,
-        liveliness::Liveliness, localvar::LocalVars, register::RegAlloc,
+        global::GlobalValues, liveliness::Liveliness, localvar::LocalVars, register::RegAlloc,
     },
     irgen::metadata::ProgramMetadata,
 };
@@ -20,6 +20,7 @@ pub mod cfg;
 pub mod dominators;
 pub mod error;
 pub mod frame;
+pub mod global;
 pub mod liveliness;
 pub mod localvar;
 pub mod register;
@@ -28,6 +29,7 @@ pub mod register;
 pub struct Analyzer<'a> {
     program: &'a Program,
     metadata: &'a ProgramMetadata,
+    global_values: OnceCell<Rc<GlobalValues>>,
     cfg_cache: HashMap<Function, Rc<ControlFlowGraph>>,
     dominators_cache: HashMap<Function, Rc<Dominators>>,
     liveliness_cache: HashMap<Function, Rc<Liveliness>>,
@@ -43,6 +45,7 @@ impl<'a> Analyzer<'a> {
         Self {
             program,
             metadata,
+            global_values: OnceCell::new(),
             cfg_cache: HashMap::new(),
             dominators_cache: HashMap::new(),
             liveliness_cache: HashMap::new(),
@@ -56,6 +59,17 @@ impl<'a> Analyzer<'a> {
     /// Get the program being analysed.
     pub fn program(&self) -> &Program {
         self.program
+    }
+
+    /// Analyse global values.
+    pub fn analyze_global_values(&self) -> Rc<GlobalValues> {
+        self.global_values
+            .get_or_init(|| {
+                trace!(->[0] "MGR " => "Analyzing global values");
+                let global_values = GlobalValues::analyze(self.program);
+                Rc::new(global_values)
+            })
+            .clone()
     }
 
     /// Analyse the control flow graph of a function.

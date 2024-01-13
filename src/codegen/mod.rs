@@ -27,13 +27,14 @@ use crate::{
     analysis::{
         call::FunctionCalls,
         frame::Frame,
+        global::GlobalValues,
         localvar::LocalVars,
         register::{RegAlloc, Storage},
         Analyzer,
     },
     codegen::{
         imm::i12,
-        riscv::{Block, BlockId, FrameSlot, FunctionId},
+        riscv::{Block, BlockId, FrameSlot, FunctionId, Global},
     },
     utils,
 };
@@ -46,6 +47,18 @@ impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
     pub fn generate(self, analyzer: &mut Analyzer) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
+
+        // Global variables.
+        let global = analyzer.analyze_global_values();
+        for data in global.values.values() {
+            let id = data.id;
+            let size = data.size;
+            let init = data.init.clone();
+            let global = Global::new(id, size, init);
+            program.push_global(global);
+        }
+
+        // Generate code for each function.
         let mut func_map = HashMap::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
@@ -68,6 +81,8 @@ impl Codegen<&koopa::ir::FunctionData> {
         func: Function,
         func_map: &mut HashMap<Function, FunctionId>,
     ) -> Result<riscv::Function> {
+        // Global variables.
+        let global = analyzer.analyze_global_values();
         // Local variables.
         let local_vars = analyzer.analyze_local_vars(func);
         // Register allocation.
@@ -85,7 +100,7 @@ impl Codegen<&koopa::ir::FunctionData> {
         func_map.insert(func, func_id);
 
         // Generate code for the function.
-        let mut func = riscv::Function::new(name.to_string());
+        let mut func = riscv::Function::new(func_id);
         func_id.set_name(name.to_string());
         let dfg = self.0.dfg();
         let bbs = self.0.layout().bbs();
@@ -136,6 +151,7 @@ impl Codegen<&koopa::ir::FunctionData> {
                 Codegen(inst).generate(
                     &mut block,
                     dfg,
+                    &global,
                     &bb_map,
                     func_map,
                     &regs,
@@ -184,6 +200,7 @@ impl Codegen<koopa::ir::entities::Value> {
         self,
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
+        global: &GlobalValues,
         bb_map: &HashMap<BasicBlock, BlockId>,
         func_map: &HashMap<Function, FunctionId>,
         regs: &RegAlloc,
@@ -265,10 +282,17 @@ impl Codegen<koopa::ir::entities::Value> {
                 Ok(())
             }
             ValueKind::Load(load) => {
-                let src = local_vars.map[&load.src()];
-                let src = src.offset(&frame.size);
-                let src = i12::try_from(src).unwrap();
-                block.push(Inst::Lw(RegId::A0, src, RegId::SP));
+                if global.values.contains_key(&load.src()) {
+                    // global variable
+                    block.push(Inst::La(RegId::A0, global.values[&load.src()].id));
+                    block.push(Inst::Lw(RegId::A0, 0.try_into().unwrap(), RegId::A0));
+                } else {
+                    // local variable
+                    let src = local_vars.map[&load.src()];
+                    let src = src.offset(&frame.size);
+                    let src = i12::try_from(src).unwrap();
+                    block.push(Inst::Lw(RegId::A0, src, RegId::SP));
+                }
                 match regs.map[&self.0] {
                     Storage::Reg(reg) => {
                         // Load the value to the register.
@@ -383,7 +407,6 @@ impl Codegen<koopa::ir::entities::Value> {
             match regs.map[&self.0] {
                 Storage::Reg(reg) => Ok(reg),
                 Storage::Slot(slot) => {
-                    // writeln!(w, "    lw {}, {}(sp)", temp, slot)?;
                     let slot = slot.offset(&frame.size);
                     let slot = i12::try_from(slot).unwrap();
                     block.push(Inst::Lw(temp, slot, RegId::SP));
@@ -398,6 +421,7 @@ impl Codegen<koopa::ir::entities::Value> {
         &self,
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
+
         regs: &RegAlloc,
         frame: &Frame,
         reg: RegId,

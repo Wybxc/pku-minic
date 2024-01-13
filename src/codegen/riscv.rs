@@ -379,6 +379,8 @@ pub enum Inst {
     Lbu(RegId, i12, RegId),
     /// Load half word unsigned.
     Lhu(RegId, i12, RegId),
+    /// Load address.
+    La(RegId, GlobalId),
 
     // Control flow
     // --------------------
@@ -471,6 +473,7 @@ impl Display for Inst {
             Inst::Sw(rd, imm, rs) => write!(f, "sw {}, {}({})", rd, imm, rs),
             Inst::Lbu(rd, imm, rs) => write!(f, "lbu {}, {}({})", rd, imm, rs),
             Inst::Lhu(rd, imm, rs) => write!(f, "lhu {}, {}({})", rd, imm, rs),
+            Inst::La(rd, global) => write!(f, "la {}, {}", rd, global.name().unwrap_or_default()),
             Inst::Ret => write!(f, "ret"),
             Inst::J(label) => write!(f, "j {}", label),
             Inst::Call(func) => write!(f, "call {}", func.name().unwrap_or_default()),
@@ -540,6 +543,7 @@ impl Inst {
             Inst::Sw(_, _, _) => None,
             Inst::Lbu(rd, _, _) => Some(rd),
             Inst::Lhu(rd, _, _) => Some(rd),
+            Inst::La(rd, _) => Some(rd),
             Inst::Ret => None,
             Inst::J(_) => None,
             Inst::Call(_) => None,
@@ -612,6 +616,7 @@ impl Inst {
             Inst::Sw(rs1, _, rs2) => [Some(rs1), Some(rs2)],
             Inst::Lbu(_, _, rs) => [None, Some(rs)],
             Inst::Lhu(_, _, rs) => [None, Some(rs)],
+            Inst::La(_, _) => [None, None],
             Inst::Ret => [None, None],
             Inst::J(_) => [None, None],
             Inst::Call(_) => [None, None],
@@ -839,6 +844,65 @@ impl Iterator for FollowInsts<'_> {
     }
 }
 
+utils::declare_u32_id!(GlobalId);
+
+thread_local! {
+    static GLOBAL_NAMES: RefCell<HashMap<GlobalId, String>> = RefCell::new(HashMap::new());
+}
+
+impl GlobalId {
+    /// Set the name of the function.
+    pub fn set_name(&self, name: String) {
+        GLOBAL_NAMES.with(|names| {
+            names.borrow_mut().insert(*self, name);
+        });
+    }
+
+    /// Get the name of the function.
+    pub fn name(&self) -> Option<String> {
+        GLOBAL_NAMES.with(|names| names.borrow().get(self).cloned())
+    }
+}
+
+/// RISC-V global variable.
+pub struct Global {
+    /// Id of the global variable.
+    pub id: GlobalId,
+    /// Size of the global variable.
+    pub size: usize,
+    /// Initial values of the global variable.
+    pub init: Option<Vec<i32>>,
+}
+
+impl Global {
+    /// Create a new global variable.
+    pub fn new(id: GlobalId, size: usize, init: Option<Vec<i32>>) -> Self {
+        Self { id, size, init }
+    }
+
+    /// Get the name of the global variable.
+    pub fn name(&self) -> String {
+        self.id.name().unwrap()
+    }
+}
+
+impl Display for Global {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "    .data")?;
+        writeln!(f, "    .globl {}", self.name())?;
+        writeln!(f, "{}:", self.name())?;
+        if let Some(init) = &self.init {
+            for value in init.iter() {
+                writeln!(f, "    .word {}", value)?;
+            }
+        } else {
+            writeln!(f, "    .zero {}", self.size)?;
+        }
+        writeln!(f)?;
+        Ok(())
+    }
+}
+
 utils::declare_u32_id!(BlockId);
 
 impl Display for BlockId {
@@ -870,22 +934,47 @@ impl BlockNode {
 
 type BlockList = KeyNodeList<BlockId, BlockNode, HashMap<BlockId, BlockNode>>;
 
+utils::declare_u32_id!(FunctionId);
+
+thread_local! {
+    static FUNTION_NAMES: RefCell<HashMap<FunctionId, String>> = RefCell::new(HashMap::new());
+}
+
+impl FunctionId {
+    /// Set the name of the function.
+    pub fn set_name(&self, name: String) {
+        FUNTION_NAMES.with(|names| {
+            names.borrow_mut().insert(*self, name);
+        });
+    }
+
+    /// Get the name of the function.
+    pub fn name(&self) -> Option<String> {
+        FUNTION_NAMES.with(|names| names.borrow().get(self).cloned())
+    }
+}
+
 /// RISC-V function.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Function {
     /// Name of the function.
-    pub name: String,
+    pub id: FunctionId,
     /// Basic blocks in the function.
     blocks: BlockList,
 }
 
 impl Function {
     /// Create a new function.
-    pub fn new(name: String) -> Self {
+    pub fn new(id: FunctionId) -> Self {
         Self {
-            name,
+            id,
             blocks: BlockList::new(),
         }
+    }
+
+    /// Get the name of the function.
+    pub fn name(&self) -> String {
+        self.id.name().unwrap()
     }
 
     /// Add a basic block to the function.
@@ -931,8 +1020,8 @@ impl Function {
 impl Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "    .text")?;
-        writeln!(f, "    .globl {}", self.name)?;
-        writeln!(f, "{}:", self.name)?;
+        writeln!(f, "    .globl {}", self.name())?;
+        writeln!(f, "{}:", self.name())?;
         for (id, block) in self.iter() {
             writeln!(f, "{}:", id)?;
             write!(f, "{}", block)?;
@@ -974,28 +1063,10 @@ impl<'a> BlockCursor<'a> {
     }
 }
 
-utils::declare_u32_id!(FunctionId);
-
-thread_local! {
-    static FUNTION_NAMES: RefCell<HashMap<FunctionId, String>> = RefCell::new(HashMap::new());
-}
-
-impl FunctionId {
-    /// Set the name of the function.
-    pub fn set_name(&self, name: String) {
-        FUNTION_NAMES.with(|names| {
-            names.borrow_mut().insert(*self, name);
-        });
-    }
-
-    /// Get the name of the function.
-    pub fn name(&self) -> Option<String> {
-        FUNTION_NAMES.with(|names| names.borrow().get(self).cloned())
-    }
-}
-
 /// RISC-V program.
 pub struct Program {
+    /// Global variables in the program.
+    pub globals: Vec<Global>,
     /// Functions in the program.
     pub functions: Vec<Function>,
 }
@@ -1004,6 +1075,7 @@ impl Program {
     /// Create a new program.
     pub fn new() -> Self {
         Self {
+            globals: Vec::new(),
             functions: Vec::new(),
         }
     }
@@ -1011,6 +1083,11 @@ impl Program {
     /// Add a function to the program.
     pub fn push(&mut self, function: Function) {
         self.functions.push(function);
+    }
+
+    /// Add a global variable to the program.
+    pub fn push_global(&mut self, global: Global) {
+        self.globals.push(global);
     }
 }
 
@@ -1022,6 +1099,9 @@ impl Default for Program {
 
 impl Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for global in &self.globals {
+            write!(f, "{}", global)?;
+        }
         for function in &self.functions {
             write!(f, "{}", function)?;
         }

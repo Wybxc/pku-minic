@@ -134,6 +134,7 @@ impl<'a> LivelinessAnalyzer<'a> {
         let mut cursor = insts.cursor_back();
         while !cursor.is_null() {
             let &inst = cursor.key().unwrap();
+
             trace!(->[0] "VLA " => "analyzing `{}`", utils::dbg_inst(inst, self.func.dfg()));
             let mut ops = operand_vars(inst, self.func.dfg());
             for op in ops.iter_mut() {
@@ -148,6 +149,7 @@ impl<'a> LivelinessAnalyzer<'a> {
             used.remove(&inst);
 
             self.live_out.insert(inst, ops);
+
             cursor.move_prev();
         }
 
@@ -162,7 +164,7 @@ impl<'a> LivelinessAnalyzer<'a> {
 
 /// Get operands of an instruction, only return variables.
 fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
-    let is_var = |&v: &Value| !utils::is_const(dfg.value(v));
+    let is_var = |v: &Value| dfg.values().get(v).is_some_and(|v| !utils::is_const(v));
     match dfg.value(value).kind() {
         ValueKind::Return(ret) => {
             let val = ret.value().filter(is_var);
