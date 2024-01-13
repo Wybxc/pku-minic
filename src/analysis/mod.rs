@@ -9,15 +9,17 @@ use nolog::*;
 
 use crate::{
     analysis::{
-        cfg::ControlFlowGraph, dominators::Dominators, liveliness::Liveliness, localvar::LocalVars,
-        register::RegAlloc,
+        call::FunctionCalls, cfg::ControlFlowGraph, dominators::Dominators, frame::Frame,
+        liveliness::Liveliness, localvar::LocalVars, register::RegAlloc,
     },
     irgen::metadata::ProgramMetadata,
 };
 
+pub mod call;
 pub mod cfg;
 pub mod dominators;
 pub mod error;
+pub mod frame;
 pub mod liveliness;
 pub mod localvar;
 pub mod register;
@@ -30,6 +32,9 @@ pub struct Analyzer<'a> {
     dominators_cache: HashMap<Function, Rc<Dominators>>,
     liveliness_cache: HashMap<Function, Rc<Liveliness>>,
     local_vars_cache: HashMap<Function, Rc<LocalVars>>,
+    regalloc_cache: HashMap<Function, Rc<RegAlloc>>,
+    calls_cache: HashMap<Function, Rc<FunctionCalls>>,
+    frame_cache: HashMap<Function, Rc<Frame>>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -42,6 +47,9 @@ impl<'a> Analyzer<'a> {
             dominators_cache: HashMap::new(),
             liveliness_cache: HashMap::new(),
             local_vars_cache: HashMap::new(),
+            regalloc_cache: HashMap::new(),
+            calls_cache: HashMap::new(),
+            frame_cache: HashMap::new(),
         }
     }
 
@@ -111,19 +119,59 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Analyse register allocation of a function.
-    ///
-    /// Note: this analysis does not have a cache.
-    pub fn analyze_register_alloc(&mut self, func: Function) -> Result<RegAlloc> {
+    pub fn analyze_register_alloc(&mut self, func: Function) -> Rc<RegAlloc> {
+        if self.regalloc_cache.contains_key(&func) {
+            return self.regalloc_cache[&func].clone();
+        }
         trace!(->[0] "MGR " => "Analyzing register allocation of {:?}", func);
         let liveliness = self.analyze_liveliness(func);
         let dominators = self.analyze_dominators(func);
-        let local_vars = self.analyze_local_vars(func)?;
-        RegAlloc::analyze(
+
+        let reg_alloc = RegAlloc::analyze(
             liveliness.as_ref(),
             dominators.as_ref(),
-            local_vars.as_ref(),
             self.program.func(func),
+        );
+        let reg_alloc = Rc::new(reg_alloc);
+        self.regalloc_cache.insert(func, reg_alloc.clone());
+        reg_alloc
+    }
+
+    /// Analyse function calls of a function.
+    pub fn analyze_function_calls(&mut self, func: Function) -> Rc<FunctionCalls> {
+        if self.calls_cache.contains_key(&func) {
+            return self.calls_cache[&func].clone();
+        }
+        trace!(->[0] "MGR " => "Analyzing function calls of {:?}", func);
+        let liveliness = self.analyze_liveliness(func);
+        let reg_alloc = self.analyze_register_alloc(func);
+        let function_calls = call::FunctionCalls::analyze(
+            liveliness.as_ref(),
+            reg_alloc.as_ref(),
+            self.program.func(func),
+        );
+        let function_calls = Rc::new(function_calls);
+        self.calls_cache.insert(func, function_calls.clone());
+        function_calls
+    }
+
+    /// Analyse frame size of a function.
+    pub fn analyze_frame(&mut self, func: Function) -> Result<Rc<Frame>> {
+        if self.frame_cache.contains_key(&func) {
+            return Ok(self.frame_cache[&func].clone());
+        }
+        trace!(->[0] "MGR " => "Analyzing frame size of {:?}", func);
+        let local_vars = self.analyze_local_vars(func)?;
+        let reg_alloc = self.analyze_register_alloc(func);
+        let function_calls = self.analyze_function_calls(func);
+        let frame = Frame::analyze(
+            local_vars.as_ref(),
+            reg_alloc.as_ref(),
+            function_calls.as_ref(),
             &self.metadata.functions[&func],
-        )
+        )?;
+        let frame = Rc::new(frame);
+        self.frame_cache.insert(func, frame.clone());
+        Ok(frame)
     }
 }

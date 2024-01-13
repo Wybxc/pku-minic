@@ -149,6 +149,128 @@ impl<const MASK: u32> RegSet<MASK> {
             }
         })
     }
+
+    /// Get the number of registers in the set.
+    pub fn len(&self) -> usize {
+        self.iter().count()
+    }
+
+    /// Check if the set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.bitset == 0
+    }
+}
+
+/// RISC-V frame size.
+///
+/// ```text
+/// +-------------------+ sp + X
+/// |   return address  |
+/// +-------------------+
+/// |     local vars    |
+/// +-------------------+
+/// |  spilled tempora- |
+/// |      ries         |
+/// +-------------------+
+/// |   saved registers |
+/// +-------------------+
+/// |     arguments     |
+/// +-------------------+ sp + 0
+/// ```
+pub struct FrameSize {
+    /// Flag for whether the frame contains a return address.
+    ra: bool,
+    /// Size of local variables.
+    local: i32,
+    /// Size of spilled temporaries.
+    spilled: i32,
+    /// Size of saved registers.
+    saved: i32,
+    /// Size of arguments.
+    arg: i32,
+}
+
+impl FrameSize {
+    /// Create a 16-byte aligned frame size.
+    pub fn new(ra: bool, local: i32, spilled: i32, saved: i32, arg: i32) -> Self {
+        let mut frame = Self {
+            ra,
+            local,
+            spilled,
+            saved,
+            arg,
+        };
+        frame.align();
+        frame
+    }
+
+    /// Align the frame size to 16 bytes.
+    pub fn align(&mut self) {
+        let size = self.total();
+        if size % 16 != 0 {
+            self.arg += 16 - size % 16;
+        }
+    }
+
+    /// Total size of the frame.
+    #[inline]
+    pub fn total(&self) -> i32 {
+        let ra = if self.ra { 4 } else { 0 };
+        ra + self.local + self.spilled + self.saved + self.arg
+    }
+
+    /// Offset where the return address is stored.
+    #[inline]
+    pub fn offset_ra(&self) -> i32 {
+        self.local + self.spilled + self.saved + self.arg
+    }
+
+    /// Offset where the local variables start.
+    #[inline]
+    pub fn offset_local(&self) -> i32 {
+        self.spilled + self.saved + self.arg
+    }
+
+    /// Offset where the spilled temporaries start.
+    #[inline]
+    pub fn offset_spilled(&self) -> i32 {
+        self.saved + self.arg
+    }
+
+    /// Offset where the saved registers start.
+    #[inline]
+    pub fn offset_saved(&self) -> i32 {
+        self.arg
+    }
+}
+
+/// Slot in the stack (RISC-V ABI).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FrameSlot {
+    /// Return address (ra).
+    RetAddr,
+    /// Local variables.
+    Local(i32),
+    /// Spilled temporary.
+    Spilled(i32),
+    /// Saved register.
+    Saved(i32),
+    /// Argument.
+    Arg(i32),
+}
+
+impl FrameSlot {
+    /// Offset of the slot from the stack pointer.
+    #[inline]
+    pub fn offset(&self, frame: &FrameSize) -> i32 {
+        match self {
+            FrameSlot::RetAddr => frame.offset_ra(),
+            FrameSlot::Local(i) => frame.offset_local() + i,
+            FrameSlot::Spilled(i) => frame.offset_spilled() + i,
+            FrameSlot::Saved(i) => frame.offset_saved() + i,
+            FrameSlot::Arg(i) => *i,
+        }
+    }
 }
 
 /// RISC-V instruction (RV32I, RV32M).

@@ -15,7 +15,7 @@ pub struct LocalVars {
     /// Map from variable to its storage.
     pub map: HashMap<Value, i12>,
     /// Frame size.
-    pub frame_size: i12,
+    pub frame_size: i32,
 }
 
 impl LocalVars {
@@ -40,9 +40,6 @@ impl LocalVars {
             }
         }
 
-        let frame_size = i12::try_from(frame_size).map_err(|_| AnalysisError::TooManyLocals {
-            span: metadata.name.span().into(),
-        })?;
         Ok(Self { map, frame_size })
     }
 }

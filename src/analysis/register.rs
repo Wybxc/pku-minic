@@ -39,22 +39,14 @@
 use std::collections::HashMap;
 
 use koopa::ir::{FunctionData, Value};
-use miette::Result;
 #[allow(unused_imports)]
 use nolog::*;
 
 #[allow(unused_imports)]
 use crate::utils;
 use crate::{
-    analysis::{
-        dominators::Dominators, error::AnalysisError, liveliness::Liveliness, localvar::LocalVars,
-    },
-    ast::Spanned,
-    codegen::{
-        imm::i12,
-        riscv::{make_reg_set, RegId, RegSet},
-    },
-    irgen::metadata::FunctionMetadata,
+    analysis::{dominators::Dominators, liveliness::Liveliness},
+    codegen::riscv::{make_reg_set, FrameSlot, RegId, RegSet},
 };
 
 /// Storage for a value.
@@ -63,7 +55,7 @@ pub enum Storage {
     /// Register.
     Reg(RegId),
     /// Stack offset from sp, in bytes.
-    Slot(i12),
+    Slot(FrameSlot),
 }
 
 /// Ids of registers that can be used.
@@ -83,19 +75,15 @@ impl Storage {
 
 /// Register allocation.
 pub struct RegAlloc {
-    map: HashMap<Value, Storage>,
-    frame_size: i12,
+    /// Map from value to storage.
+    pub map: HashMap<Value, Storage>,
+    /// Frame size.
+    pub frame_size: i32,
 }
 
 impl RegAlloc {
     /// Analyse register allocation.
-    pub fn analyze(
-        liveliness: &Liveliness,
-        dominators: &Dominators,
-        local_vars: &LocalVars,
-        func: &FunctionData,
-        metadata: &FunctionMetadata,
-    ) -> Result<Self> {
+    pub fn analyze(liveliness: &Liveliness, dominators: &Dominators, func: &FunctionData) -> Self {
         // Get live variables.
         let live_in = &liveliness.live_in;
         let live_out = &liveliness.live_out;
@@ -104,7 +92,7 @@ impl RegAlloc {
         // We adopt a static method: once a variable is assigned a register,
         // it will not be changed. This is not optimal, and might to be improved later.
         let mut map = HashMap::<Value, Storage>::new();
-        let mut frame_size = local_vars.frame_size;
+        let mut frame_size = 0;
 
         // Scan basic blocks in topological order.
         let bbs = func.layout().bbs();
@@ -148,33 +136,19 @@ impl RegAlloc {
                         );
                     } else {
                         // No free register, spill a variable.
-                        map.insert(inst, Storage::Slot(frame_size));
+                        map.insert(inst, Storage::Slot(FrameSlot::Spilled(frame_size)));
 
                         trace!(
                             "REG " => "spill {} to stack sp+{frame_size}",
                             utils::ident_inst(inst, func.dfg())
                         );
 
-                        frame_size = i12::try_from(frame_size.value() + 4).map_err(|_| {
-                            AnalysisError::TooManyLocals {
-                                span: metadata.name.span().into(),
-                            }
-                        })?;
+                        frame_size += 4;
                     }
                 }
             }
         }
 
-        Ok(Self { map, frame_size })
-    }
-
-    /// Get storage of a value.
-    pub fn get(&self, value: Value) -> Storage {
-        self.map[&value]
-    }
-
-    /// Minimum size of stack frame, in bytes.
-    pub fn frame_size(&self) -> i12 {
-        self.frame_size
+        Self { map, frame_size }
     }
 }

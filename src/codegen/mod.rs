@@ -25,11 +25,15 @@ use riscv::{Inst, RegId};
 
 use crate::{
     analysis::{
+        frame::Frame,
         localvar::LocalVars,
         register::{RegAlloc, Storage},
         Analyzer,
     },
-    codegen::riscv::{Block, BlockId},
+    codegen::{
+        imm::i12,
+        riscv::{Block, BlockId},
+    },
     utils,
 };
 
@@ -56,9 +60,13 @@ impl Codegen<&koopa::ir::FunctionData> {
         // Local variables.
         let local_vars = analyzer.analyze_local_vars(func)?;
         // Register allocation.
-        let regs = analyzer.analyze_register_alloc(func)?;
+        let regs = analyzer.analyze_register_alloc(func);
         // Dominators tree.
         let dominators = analyzer.analyze_dominators(func);
+        // Function calls.
+        // let calls = analyzer.analyze_function_calls(func);
+        // Frame size.
+        let frame = analyzer.analyze_frame(func)?;
 
         // Function builder.
         let name = &self.0.name()[1..];
@@ -76,7 +84,7 @@ impl Codegen<&koopa::ir::FunctionData> {
             .collect();
 
         // Prologue.
-        let frame_size = regs.frame_size();
+        let frame_size = frame.total;
         let prologue = if frame_size > 0 {
             Some(Inst::Addi(RegId::SP, RegId::SP, -frame_size))
         } else {
@@ -105,7 +113,15 @@ impl Codegen<&koopa::ir::FunctionData> {
                 }
             }
             for &inst in node.insts().keys() {
-                Codegen(inst).generate(&mut block, dfg, &bb_map, &regs, &local_vars, epilogue)?;
+                Codegen(inst).generate(
+                    &mut block,
+                    dfg,
+                    &bb_map,
+                    &regs,
+                    &local_vars,
+                    &frame,
+                    epilogue,
+                )?;
             }
             let block = block.build();
 
@@ -141,6 +157,7 @@ fn simple_bop_to_asm(op: BinaryOp, dst: RegId, lhs: RegId, rhs: RegId) -> Option
 
 impl Codegen<koopa::ir::entities::Value> {
     /// Generate code from Koopa IR for a single instruction.
+    #[allow(clippy::too_many_arguments)]
     pub fn generate(
         self,
         block: &mut BlockBuilder,
@@ -148,13 +165,14 @@ impl Codegen<koopa::ir::entities::Value> {
         bb_map: &HashMap<BasicBlock, BlockId>,
         regs: &RegAlloc,
         local_vars: &LocalVars,
+        frame: &Frame,
         epilogue: Option<Inst>,
     ) -> Result<()> {
         match dfg.value(self.0).kind() {
             ValueKind::Return(ret) => {
                 if let Some(val) = ret.value() {
                     // Load the return value to a0.
-                    Codegen(val).load_value_to_reg(block, dfg, regs, RegId::A0)?;
+                    Codegen(val).load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
                 }
                 if let Some(epilogue) = epilogue {
                     block.push(epilogue);
@@ -163,12 +181,12 @@ impl Codegen<koopa::ir::entities::Value> {
                 Ok(())
             }
             ValueKind::Binary(bin) => {
-                let lhs = Codegen(bin.lhs()).load_value(block, dfg, regs, RegId::T0)?;
-                let rhs = Codegen(bin.rhs()).load_value(block, dfg, regs, RegId::T1)?;
+                let lhs = Codegen(bin.lhs()).load_value(block, dfg, regs, frame, RegId::T0)?;
+                let rhs = Codegen(bin.rhs()).load_value(block, dfg, regs, frame, RegId::T1)?;
 
                 // Get the register that stores the result.
                 // If the result will be stored in stack, use a0 as the temporary register.
-                let storage = regs.get(self.0);
+                let storage = regs.map[&self.0];
                 let reg = match storage {
                     Storage::Reg(reg) => reg,
                     Storage::Slot(_) => RegId::A0,
@@ -202,6 +220,8 @@ impl Codegen<koopa::ir::entities::Value> {
 
                 // Write the result to stack if necessary.
                 if let Storage::Slot(slot) = storage {
+                    let slot = slot.offset(&frame.size);
+                    let slot = i12::try_from(slot).unwrap();
                     block.push(Inst::Sw(reg, slot, RegId::SP));
                 }
                 Ok(())
@@ -213,27 +233,29 @@ impl Codegen<koopa::ir::entities::Value> {
             ValueKind::Store(store) => {
                 let val = Codegen(store.value());
                 let dest = local_vars.map[&store.dest()];
-                val.load_value_to_reg(block, dfg, regs, RegId::A0)?;
+                val.load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
                 block.push(Inst::Sw(RegId::A0, dest, RegId::SP));
                 Ok(())
             }
             ValueKind::Load(load) => {
                 let src = local_vars.map[&load.src()];
                 block.push(Inst::Lw(RegId::A0, src, RegId::SP));
-                match regs.get(self.0) {
+                match regs.map[&self.0] {
                     Storage::Reg(reg) => {
                         // Load the value to the register.
                         block.push(Inst::Mv(reg, RegId::A0));
                     }
                     Storage::Slot(slot) => {
                         // Write the value to stack.
+                        let slot = slot.offset(&frame.size);
+                        let slot = i12::try_from(slot).unwrap();
                         block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
                     }
                 }
                 Ok(())
             }
             ValueKind::Branch(branch) => {
-                let cond = Codegen(branch.cond()).load_value(block, dfg, regs, RegId::A0)?;
+                let cond = Codegen(branch.cond()).load_value(block, dfg, regs, frame, RegId::A0)?;
                 let then = bb_map[&branch.true_bb()];
                 let els = bb_map[&branch.false_bb()];
                 block.push(Inst::Beqz(cond, els));
@@ -245,6 +267,7 @@ impl Codegen<koopa::ir::entities::Value> {
                 block.push(Inst::J(target));
                 Ok(())
             }
+
             _ => panic!("unexpected value kind: {:?}", dfg.value(self.0).kind()),
         }
     }
@@ -262,16 +285,19 @@ impl Codegen<koopa::ir::entities::Value> {
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
         regs: &RegAlloc,
+        frame: &Frame,
         temp: RegId,
     ) -> Result<RegId> {
         let data = self.data(dfg);
         if data.is_const() {
             data.load_const(block, temp)
         } else {
-            match regs.get(self.0) {
+            match regs.map[&self.0] {
                 Storage::Reg(reg) => Ok(reg),
                 Storage::Slot(slot) => {
                     // writeln!(w, "    lw {}, {}(sp)", temp, slot)?;
+                    let slot = slot.offset(&frame.size);
+                    let slot = i12::try_from(slot).unwrap();
                     block.push(Inst::Lw(temp, slot, RegId::SP));
                     Ok(temp)
                 }
@@ -285,9 +311,10 @@ impl Codegen<koopa::ir::entities::Value> {
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
         regs: &RegAlloc,
+        frame: &Frame,
         reg: RegId,
     ) -> Result<()> {
-        let res = self.load_value(block, dfg, regs, reg)?;
+        let res = self.load_value(block, dfg, regs, frame, reg)?;
         if res != reg {
             block.push(Inst::Mv(reg, res));
         }
@@ -339,12 +366,14 @@ impl Codegen<&koopa::ir::entities::ValueData> {
 //         #[test]
 //         fn opt_correct(
 //             regs in simulate::Regs::arbitrary(),
-//             program in ast::arbitrary::arb_comp_unit().prop_map(ast::display::Displayable),
+//             program in
+// ast::arbitrary::arb_comp_unit().prop_map(ast::display::Displayable),
 //         ) {
 //             let (program, meta) = program.0.build_ir().unwrap();
 //             let mut analyzer = Analyzer::new(&program, &meta);
-//             let program_o0 = Codegen(&program).generate(&mut analyzer, 0).unwrap();
-//             let program_o1 = Codegen(&program).generate(&mut analyzer, 1).unwrap();
+//             let program_o0 = Codegen(&program).generate(&mut analyzer,
+// 0).unwrap();             let program_o1 = Codegen(&program).generate(&mut
+// analyzer, 1).unwrap();
 
 //             let mut regs1 = regs.clone();
 //             let mut mem1 = simulate::Memory::new();
