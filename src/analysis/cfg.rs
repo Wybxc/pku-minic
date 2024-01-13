@@ -85,7 +85,9 @@ impl ControlFlowGraph {
     }
 
     /// Get the entry node.
-    pub fn entry(&self) -> BasicBlock { self.graph[self.entry] }
+    pub fn entry(&self) -> BasicBlock {
+        self.graph[self.entry]
+    }
 
     /// Get the exit nodes.
     pub fn exits(&self) -> impl Iterator<Item = BasicBlock> + '_ {

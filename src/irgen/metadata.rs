@@ -26,7 +26,9 @@ impl ProgramMetadata {
 }
 
 impl Default for ProgramMetadata {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Function metadata.
@@ -37,5 +39,7 @@ pub struct FunctionMetadata {
 
 impl FunctionMetadata {
     /// Create a new function metadata.
-    pub fn new(name: Span<String>) -> Self { Self { name } }
+    pub fn new(name: Span<String>) -> Self {
+        Self { name }
+    }
 }

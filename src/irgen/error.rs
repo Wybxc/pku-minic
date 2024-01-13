@@ -15,11 +15,27 @@ pub enum CompileError {
         span: SourceSpan,
     },
 
+    /// variable type cannot be void
+    #[error("variable type cannot be void")]
+    #[diagnostic(code(minic::var_type_void))]
+    VariableTypeVoid {
+        #[label("variable type cannot be void")]
+        span: SourceSpan,
+    },
+
     /// variable not found
     #[error("variable not found")]
     #[diagnostic(code(minic::var_not_found))]
     VariableNotFound {
         #[label("not found")]
+        span: SourceSpan,
+    },
+
+    /// variable defined twice
+    #[error("variable defined twice")]
+    #[diagnostic(code(minic::var_defined_twice))]
+    VariableDefinedTwice {
+        #[label("defined twice")]
         span: SourceSpan,
     },
 
@@ -44,6 +60,54 @@ pub enum CompileError {
     #[diagnostic(code(minic::continue_not_in_loop))]
     ContinueNotInLoop {
         #[label("continue statement not within a loop")]
+        span: SourceSpan,
+    },
+
+    /// function defined twice
+    #[error("function defined twice")]
+    #[diagnostic(code(minic::func_defined_twice))]
+    FunctionDefinedTwice {
+        #[label("defined twice")]
+        span: SourceSpan,
+    },
+
+    /// duplicate parameter name
+    #[error("duplicate parameter name")]
+    #[diagnostic(code(minic::duplicate_param))]
+    DuplicateParameter {
+        #[label("duplicate parameter name")]
+        span: SourceSpan,
+    },
+
+    /// cannot use function as variable
+    #[error("cannot use function as variable")]
+    #[diagnostic(code(minic::func_as_var))]
+    FuncAsVar {
+        #[label("expected variable, found function")]
+        span: SourceSpan,
+    },
+
+    /// undefined reference to function
+    #[error("undefined reference to function")]
+    #[diagnostic(code(minic::undefined_func))]
+    UndefinedFunc {
+        #[label("undefined reference to function")]
+        span: SourceSpan,
+    },
+
+    /// not a function
+    #[error("not a function")]
+    #[diagnostic(code(minic::not_a_func))]
+    ConstNotAFunction {
+        #[label("is a constant")]
+        span: SourceSpan,
+    },
+
+    /// not a function
+    #[error("not a function")]
+    #[diagnostic(code(minic::not_a_func))]
+    VarNotAFunction {
+        #[label("is a variable")]
         span: SourceSpan,
     },
 }

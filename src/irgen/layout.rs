@@ -6,18 +6,18 @@ use koopa::ir::{
 };
 use miette::Result;
 
-use crate::ast;
+use crate::ast::{self};
 
 /// Basic block layout builder.
 pub struct LayoutBuilder<'a> {
     func: &'a mut FunctionData,
     current: BasicBlock,
-    rtype: ast::FuncType,
+    rtype: ast::BType,
 }
 
 impl<'a> LayoutBuilder<'a> {
     /// Create a new layout builder.
-    pub fn new(func: &'a mut FunctionData, rtype: ast::FuncType) -> Self {
+    pub fn new(func: &'a mut FunctionData, rtype: ast::BType) -> Self {
         let entry = func.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         func.layout_mut()
             .bbs_mut()
@@ -31,7 +31,9 @@ impl<'a> LayoutBuilder<'a> {
     }
 
     /// Function data.
-    pub fn func_mut(&mut self) -> &mut FunctionData { self.func }
+    pub fn func_mut(&mut self) -> &mut FunctionData {
+        self.func
+    }
 
     /// Basic block node.
     pub fn bb_mut(&mut self, bb: BasicBlock) -> &mut BasicBlockNode {
@@ -39,16 +41,29 @@ impl<'a> LayoutBuilder<'a> {
     }
 
     /// Current basic block id.
-    pub fn current(&self) -> BasicBlock { self.current }
+    pub fn current(&self) -> BasicBlock {
+        self.current
+    }
 
     /// Current basic block node.
-    pub fn current_bb_mut(&mut self) -> &mut BasicBlockNode { self.bb_mut(self.current) }
+    pub fn current_bb_mut(&mut self) -> &mut BasicBlockNode {
+        self.bb_mut(self.current)
+    }
 
     /// Dataflow graph.
-    pub fn dfg(&self) -> &DataFlowGraph { self.func.dfg() }
+    pub fn dfg(&self) -> &DataFlowGraph {
+        self.func.dfg()
+    }
 
     /// Dataflow graph.
-    pub fn dfg_mut(&mut self) -> &mut DataFlowGraph { self.func.dfg_mut() }
+    pub fn dfg_mut(&mut self) -> &mut DataFlowGraph {
+        self.func.dfg_mut()
+    }
+
+    /// Parameter values.
+    pub fn params(&self) -> &[Value] {
+        self.func.params()
+    }
 
     /// Push an instruction to the current basic block.
     ///
@@ -86,7 +101,7 @@ impl<'a> LayoutBuilder<'a> {
         {
             let dfg = self.func.dfg_mut();
             let value = self.rtype.default_value(dfg);
-            let inst = dfg.new_value().ret(Some(value));
+            let inst = dfg.new_value().ret(value);
             self.push_inst(inst);
         }
     }
@@ -120,5 +135,7 @@ impl<'a> LayoutBuilder<'a> {
     /// # Safety
     /// The new basic block must not be terminated, and current basic block must
     /// be terminated.
-    pub fn switch_bb(&mut self, bb: BasicBlock) { self.current = bb; }
+    pub fn switch_bb(&mut self, bb: BasicBlock) {
+        self.current = bb;
+    }
 }

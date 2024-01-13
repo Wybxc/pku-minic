@@ -8,32 +8,61 @@ pub(crate) mod display;
 /// Compilation Unit
 ///
 /// ```text
-/// CompUnit ::= FuncDef
+/// CompUnit ::= {TopLevelItem}
 /// ```
 #[derive(Debug, Clone)]
 pub struct CompUnit {
-    pub func_def: FuncDef,
+    pub top_levels: Vec<TopLevelItem>,
 }
 
 impl Spanned for CompUnit {
     fn start_pos(&self) -> usize {
-        self.func_def.start_pos()
+        self.top_levels[0].start_pos()
     }
 
     fn end_pos(&self) -> usize {
-        self.func_def.end_pos()
+        self.top_levels[self.top_levels.len() - 1].end_pos()
+    }
+}
+
+/// Top Level Item
+///
+/// ```text
+/// TopLevelItem ::= FuncDef | Decl
+/// ```
+#[derive(Debug, Clone)]
+pub enum TopLevelItem {
+    FuncDef(FuncDef),
+    Decl(Decl),
+}
+
+impl Spanned for TopLevelItem {
+    fn start_pos(&self) -> usize {
+        match self {
+            TopLevelItem::FuncDef(func_def) => func_def.start_pos(),
+            TopLevelItem::Decl(decl) => decl.start_pos(),
+        }
+    }
+
+    fn end_pos(&self) -> usize {
+        match self {
+            TopLevelItem::FuncDef(func_def) => func_def.end_pos(),
+            TopLevelItem::Decl(decl) => decl.end_pos(),
+        }
     }
 }
 
 /// Function Definition
 ///
 /// ```text
-/// FuncDef ::= FuncType IDENT "(" ")" Block
+/// FuncDef ::= FuncType IDENT "(" [FuncParams] ")" Block
+/// FuncParams ::= FuncParam {"," FuncParam}
 /// ```
 #[derive(Debug, Clone)]
 pub struct FuncDef {
-    pub func_type: Span<FuncType>,
+    pub func_type: Span<BType>,
     pub ident: Span<String>,
+    pub params: Vec<FuncParam>,
     pub block: Span<Block>,
 }
 
@@ -47,17 +76,26 @@ impl Spanned for FuncDef {
     }
 }
 
-/// Function Type
+/// Function Parameter
 ///
 /// ```text
-/// FuncType ::= "int"
+/// FuncParam ::= BType IDENT
 /// ```
-#[derive(Debug, Clone, Copy)]
-pub enum FuncType {
-    Int,
+#[derive(Debug, Clone)]
+pub struct FuncParam {
+    pub ty: Span<BType>,
+    pub ident: Span<String>,
 }
 
-impl NonSpanned for FuncType {}
+impl Spanned for FuncParam {
+    fn start_pos(&self) -> usize {
+        self.ty.start_pos()
+    }
+
+    fn end_pos(&self) -> usize {
+        self.ident.end_pos()
+    }
+}
 
 /// Block
 ///
@@ -224,6 +262,7 @@ impl Spanned for InitVal {
 #[derive(Debug, Clone)]
 pub enum BType {
     Int,
+    Void,
 }
 
 impl NonSpanned for BType {}
@@ -257,6 +296,9 @@ impl Spanned for ConstExpr {
 ///                   | [Exp] ";"
 ///                   | Block
 ///                   | "if" "(" Exp ")" MatchedIfStmt "else" MatchedIfStmt
+///                   | "while" "(" Exp ")" MatchedIfStmt
+///                   | "break" ";"
+///                   | "continue" ";"
 ///                   | "return" Exp ";"
 /// UnmatchedIfStmt ::= "if" "(" Exp ")" Stmt
 ///                   | "if" "(" Exp ")" MatchedIfStmt "else" UnmatchedIfStmt
@@ -296,9 +338,9 @@ impl NonSpanned for Stmt {}
 /// ```text
 /// Expr          ::= LOrExp;
 /// LVal          ::= IDENT;
-/// PrimaryExp    ::= "(" Exp ")" | LVal | Number;
+/// PrimaryExp    ::= "(" Expr ")" | LVal | Number;
 /// Number        ::= INT_CONST;
-/// UnaryExp      ::= PrimaryExp | UnaryOp UnaryExp;
+/// UnaryExp      ::= PrimaryExp | UnaryOp UnaryExp | CallExp;
 /// MulExp        ::= UnaryExp | MulExp ("*" | "/" | "%") UnaryExp;
 /// AddExp        ::= MulExp | AddExp ("+" | "-") MulExp;
 /// RelExp        ::= AddExp | RelExp ("<" | ">" | "<=" | ">=") AddExp;
@@ -319,6 +361,7 @@ pub enum Expr {
     },
     Number(Span<i32>),
     LVar(Span<String>),
+    Call(Span<CallExpr>),
 }
 
 impl Spanned for Expr {
@@ -328,6 +371,7 @@ impl Spanned for Expr {
             Expr::Binary { lhs, .. } => lhs.start_pos(),
             Expr::Number(n) => n.start_pos(),
             Expr::LVar(ident) => ident.start_pos(),
+            Expr::Call(call) => call.start_pos(),
         }
     }
 
@@ -337,9 +381,24 @@ impl Spanned for Expr {
             Expr::Binary { rhs, .. } => rhs.end_pos(),
             Expr::Number(n) => n.end_pos(),
             Expr::LVar(ident) => ident.end_pos(),
+            Expr::Call(call) => call.end_pos(),
         }
     }
 }
+
+/// Function Call Expression
+///
+/// ```text
+/// CallExp ::= IDENT "(" [FuncArgs] ")";
+/// FuncArgs ::= Expr {"," Expr};
+/// ```
+#[derive(Debug, Clone)]
+pub struct CallExpr {
+    pub ident: Span<String>,
+    pub args: Vec<Expr>,
+}
+
+impl NonSpanned for CallExpr {}
 
 /// Unary Operator
 ///

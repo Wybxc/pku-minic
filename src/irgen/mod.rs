@@ -50,7 +50,9 @@ impl ast::CompUnit {
         let mut symtable = SymbolTable::new();
         let mut program = Program::new();
         let mut metadata = ProgramMetadata::new();
+        symtable.push();
         self.build_ir_in(&mut symtable, &mut program, &mut metadata)?;
+        symtable.pop();
         Ok((program, metadata))
     }
 
@@ -61,7 +63,63 @@ impl ast::CompUnit {
         program: &mut Program,
         metadata: &mut ProgramMetadata,
     ) -> Result<()> {
-        self.func_def.build_ir_in(symtable, program, metadata)
+        // decl @getint(): i32
+        self.decl_function(symtable, program, "@getint", vec![], Type::get_i32());
+        // decl @getch(): i32
+        self.decl_function(symtable, program, "@getch", vec![], Type::get_i32());
+        // decl @getarray(*i32): i32
+        // self.decl_function(symtable, program, "@getarray", vec![Type::get_ptr(Type::get_i32())], Type::get_i32());
+        // decl @putint(i32)
+        self.decl_function(
+            symtable,
+            program,
+            "@putint",
+            vec![Type::get_i32()],
+            Type::get_unit(),
+        );
+        // decl @putch(i32)
+        self.decl_function(
+            symtable,
+            program,
+            "@putch",
+            vec![Type::get_i32()],
+            Type::get_unit(),
+        );
+        // decl @putarray(i32, *i32)
+        // self.decl_function(symtable, program, "@putarray", vec![Type::get_i32(), Type::get_ptr(Type::get_i32())], Type::get_unit());
+        // decl @starttime()
+        self.decl_function(symtable, program, "@starttime", vec![], Type::get_unit());
+        // decl @stoptime()
+        self.decl_function(symtable, program, "@stoptime", vec![], Type::get_unit());
+
+        for item in self.top_levels {
+            match item {
+                ast::TopLevelItem::FuncDef(func_def) => {
+                    func_def.build_ir_in(symtable, program, metadata)?;
+                }
+                ast::TopLevelItem::Decl(decl) => {
+                    decl.build_ir_global(symtable, program)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn decl_function(
+        &self,
+        symtable: &mut SymbolTable,
+        program: &mut Program,
+        name: &'static str,
+        params_ty: Vec<Type>,
+        ret_ty: Type,
+    ) {
+        let func = program.new_func(FunctionData::new_decl(name.into(), params_ty, ret_ty));
+        if symtable
+            .insert_var(name[1..].into(), Symbol::Func(func))
+            .is_some()
+        {
+            unreachable!();
+        }
     }
 }
 
@@ -71,19 +129,44 @@ impl ast::FuncDef {
         self,
         symtable: &mut SymbolTable,
         program: &mut Program,
-        metadata: &mut ProgramMetadata,
+        prog_metadata: &mut ProgramMetadata,
     ) -> Result<()> {
-        let func = program.new_func(FunctionData::with_param_names(
-            format!("@{}", self.ident.node),
-            vec![],
-            self.func_type.node.build_ir(),
-        ));
+        let span = self.ident.span().into();
+        let metadata = FunctionMetadata::new(self.ident.clone());
+        let kp_name = format!("@{}", self.ident.node);
+        let params = self.params.iter().map(|p| p.build_ir()).collect();
+        let ret_type = self.func_type.node.build_ir();
+        let func = program.new_func(FunctionData::with_param_names(kp_name, params, ret_type));
+        prog_metadata.functions.insert(func, metadata);
 
-        let func_metadata = FunctionMetadata::new(self.ident);
-        metadata.functions.insert(func, func_metadata);
+        // add function to global symbol table
+        if symtable
+            .insert_var(self.ident.node, Symbol::Func(func))
+            .is_some()
+        {
+            Err(CompileError::FunctionDefinedTwice { span })?;
+        }
 
         let mut context = Context::new();
         let mut layout = LayoutBuilder::new(program.func_mut(func), self.func_type.node);
+
+        // alloc var for parameters
+        symtable.push();
+        let params = layout.params().to_vec();
+        for (value, param) in params.into_iter().zip(self.params) {
+            let span = param.ident.span().into();
+            let dfg = layout.dfg_mut();
+            let name = param.ident.node;
+            let ty = dfg.value(value).ty().clone();
+            let var = dfg.new_value().alloc(ty);
+            let store = dfg.new_value().store(value, var);
+            dfg.set_value_name(var, Some(format!("%{}", name)));
+            layout.push_insts([var, store]);
+            if symtable.insert_var(name, Symbol::Var(var)).is_some() {
+                Err(CompileError::DuplicateParameter { span })?;
+            }
+        }
+
         let terminated = self
             .block
             .node
@@ -91,24 +174,19 @@ impl ast::FuncDef {
         if !terminated.is_terminated() {
             layout.terminate_current_bb();
         }
+        symtable.pop();
 
         Ok(())
     }
 }
 
-impl ast::FuncType {
+impl ast::FuncParam {
     /// Build IR from AST.
-    pub fn build_ir(self) -> Type {
-        match self {
-            ast::FuncType::Int => Type::get_i32(),
-        }
-    }
-
-    /// Default value of the type.
-    pub fn default_value(self, dfg: &mut DataFlowGraph) -> Value {
-        match self {
-            ast::FuncType::Int => dfg.new_value().integer(0),
-        }
+    pub fn build_ir(&self) -> (Option<String>, Type) {
+        (
+            Some(format!("@{}", self.ident.node)),
+            self.ty.node.build_ir(),
+        )
     }
 }
 
@@ -159,6 +237,14 @@ impl ast::Decl {
             ast::Decl::Var(var_decl) => var_decl.node.build_ir_in(symtable, layout),
         }
     }
+
+    /// Build IR from AST for global variables.
+    pub fn build_ir_global(self, symtable: &mut SymbolTable, program: &mut Program) -> Result<()> {
+        match self {
+            ast::Decl::Const(const_decl) => const_decl.node.build_ir_in(symtable),
+            ast::Decl::Var(var_decl) => var_decl.node.build_ir_global(symtable, program),
+        }
+    }
 }
 
 impl ast::BType {
@@ -166,6 +252,15 @@ impl ast::BType {
     pub fn build_ir(&self) -> Type {
         match self {
             ast::BType::Int => Type::get_i32(),
+            ast::BType::Void => Type::get_unit(),
+        }
+    }
+
+    /// Default value of the type.
+    pub fn default_value(&self, dfg: &mut DataFlowGraph) -> Option<Value> {
+        match self {
+            ast::BType::Int => Some(dfg.new_value().integer(0)),
+            ast::BType::Void => None,
         }
     }
 }
@@ -183,8 +278,14 @@ impl ast::ConstDecl {
 impl ast::ConstDef {
     /// Build IR from AST in an existing IR node.
     pub fn build_ir_in(self, symtable: &mut SymbolTable) -> Result<()> {
+        let span = self.ident.span().into();
         let expr = self.expr.const_eval(symtable)?;
-        symtable.insert_var(self.ident.node, Symbol::Const(expr));
+        if symtable
+            .insert_var(self.ident.node, Symbol::Const(expr))
+            .is_some()
+        {
+            Err(CompileError::VariableDefinedTwice { span })?;
+        }
         Ok(())
     }
 }
@@ -202,7 +303,14 @@ impl ast::VarDecl {
         for def in self.defs {
             def.build_ir_in(symtable, &self.ty.node, layout)?;
         }
+        Ok(())
+    }
 
+    /// Build IR from AST for global variables.
+    pub fn build_ir_global(self, symtable: &mut SymbolTable, program: &mut Program) -> Result<()> {
+        for def in self.defs {
+            def.build_ir_global(symtable, program, &self.ty.node)?;
+        }
         Ok(())
     }
 }
@@ -215,6 +323,12 @@ impl ast::VarDef {
         ty: &ast::BType,
         layout: &mut LayoutBuilder,
     ) -> Result<()> {
+        // Check the type.
+        let span = self.ident.span().into();
+        if matches!(ty, ast::BType::Void) {
+            Err(CompileError::VariableTypeVoid { span })?;
+        }
+
         // Allocate a new variable.
         let dfg = layout.dfg_mut();
         let var = dfg.new_value().alloc(ty.build_ir());
@@ -229,7 +343,48 @@ impl ast::VarDef {
         }
 
         // Insert the variable into the symbol table.
-        symtable.insert_var(self.ident.node, Symbol::Var(var));
+        if symtable
+            .insert_var(self.ident.node, Symbol::Var(var))
+            .is_some()
+        {
+            Err(CompileError::VariableDefinedTwice { span })?;
+        }
+
+        Ok(())
+    }
+
+    /// Build IR from AST for global variables.
+    pub fn build_ir_global(
+        self,
+        symtable: &mut SymbolTable,
+        program: &mut Program,
+        ty: &ast::BType,
+    ) -> Result<()> {
+        // Check the type.
+        let span = self.ident.span().into();
+        if matches!(ty, ast::BType::Void) {
+            Err(CompileError::VariableTypeVoid { span })?;
+        }
+
+        // Initialize the variable.
+        let init = if let Some(init) = self.init {
+            let value = init.expr.const_eval(symtable)?;
+            program.new_value().integer(value)
+        } else {
+            program.new_value().zero_init(ty.build_ir())
+        };
+
+        // Allocate a new variable.
+        let var = program.new_value().global_alloc(init);
+        program.set_value_name(var, Some(format!("@{}", self.ident.node)));
+
+        // Insert the variable into the symbol table.
+        if symtable
+            .insert_var(self.ident.node, Symbol::Var(var))
+            .is_some()
+        {
+            Err(CompileError::VariableDefinedTwice { span })?;
+        }
 
         Ok(())
     }
@@ -260,6 +415,7 @@ impl ast::Stmt {
                 let var = match var {
                     Symbol::Const(_) => Err(CompileError::AssignToConst { span })?,
                     Symbol::Var(var) => *var,
+                    Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
                 };
 
                 // Compute the expression.
@@ -533,7 +689,34 @@ impl ast::Expr {
                         let load = dfg.new_value().load(*var);
                         layout.push_inst(load)
                     }
+                    Symbol::Func(_) => Err(CompileError::FuncAsVar {
+                        span: name.span().into(),
+                    })?,
                 }
+            }
+            ast::Expr::Call(call) => {
+                let span = call.node.ident.span().into();
+                let func = symtable
+                    .get_var(&call.node.ident.node)
+                    .ok_or(CompileError::VariableNotFound { span })?;
+                let func = match func {
+                    Symbol::Const(_) => Err(CompileError::ConstNotAFunction { span })?,
+                    Symbol::Var(_) => Err(CompileError::VarNotAFunction { span })?,
+                    Symbol::Func(func) => *func,
+                };
+
+                let args = call
+                    .node
+                    .args
+                    .into_iter()
+                    .map(|arg| arg.build_ir_in(symtable, layout))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let dfg = layout.dfg_mut();
+                let call = dfg.new_value().call(func, args);
+                layout.push_inst(call);
+
+                call
             }
         })
     }
@@ -577,8 +760,12 @@ impl ast::Expr {
                 match var {
                     Symbol::Const(num) => *num,
                     Symbol::Var(_) => Err(CompileError::NonConstantExpression { span })?,
+                    Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
                 }
             }
+            ast::Expr::Call(_) => Err(CompileError::NonConstantExpression {
+                span: self.span().into(),
+            })?,
         })
     }
 }

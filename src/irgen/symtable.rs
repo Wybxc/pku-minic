@@ -2,12 +2,13 @@
 
 use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 
-use koopa::ir::Value;
+use koopa::ir::{Function, Value};
 
 /// Symbol, can be const or variable.
 pub enum Symbol {
     Const(i32),
     Var(Value),
+    Func(Function),
 }
 
 /// Symbol table.
@@ -32,8 +33,12 @@ impl SymbolTable {
         self.chain_map.pop();
     }
 
-    /// Insert a symbol.
-    pub fn insert_var(&mut self, ident: String, symbol: Symbol) {
+    /// Insert a symbol, return the old symbol in same scope if exists.
+    ///
+    /// # Panics
+    /// Panics if there is no scope.
+    #[must_use]
+    pub fn insert_var(&mut self, ident: String, symbol: Symbol) -> Option<Symbol> {
         self.chain_map.insert(ident, symbol)
     }
 
@@ -72,12 +77,15 @@ impl<K: Eq + Hash, V> ChainMap<K, V> {
         self.maps.pop();
     }
 
-    /// Insert a key-value pair.
+    /// Insert a key-value pair, return the old value in same scope if exists.
     ///
     /// # Panics
     /// Panics if there is no scope.
-    fn insert(&mut self, key: K, value: V) {
-        self.maps.last_mut().unwrap().insert(key, value);
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.maps
+            .last_mut()
+            .expect("chain map is empty")
+            .insert(key, value)
     }
 
     /// Get a value.

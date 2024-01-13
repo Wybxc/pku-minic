@@ -17,4 +17,6 @@ target/
 /*.kp
 /*.s
 /*.ll
+/*.o
+/*.exe
 /proptest-regressions

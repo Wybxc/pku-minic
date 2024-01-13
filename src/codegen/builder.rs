@@ -13,8 +13,8 @@ impl BlockBuilder {
 
     /// Push an instruction to the block.
     pub fn push(&mut self, instr: Inst) {
-        // if let Some(instr) = peephole::optimize_inst_push(instr, self.opt_level, &mut self.cache) {
-        //     self.block.push(instr);
+        // if let Some(instr) = peephole::optimize_inst_push(instr, self.opt_level, &mut
+        // self.cache) {     self.block.push(instr);
         // }
         self.block.push(instr);
     }
