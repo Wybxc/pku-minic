@@ -3,24 +3,20 @@
 use std::collections::HashMap;
 
 use koopa::ir::{FunctionData, Value, ValueKind};
-use miette::Result;
 
-use crate::{
-    analysis::error::AnalysisError, ast::Spanned, codegen::imm::i12,
-    irgen::metadata::FunctionMetadata,
-};
+use crate::codegen::riscv::FrameSlot;
 
 /// Local variables.
 pub struct LocalVars {
     /// Map from variable to its storage.
-    pub map: HashMap<Value, i12>,
+    pub map: HashMap<Value, FrameSlot>,
     /// Frame size.
     pub frame_size: i32,
 }
 
 impl LocalVars {
     /// Analyse local variables.
-    pub fn analyze(func: &FunctionData, metadata: &FunctionMetadata) -> Result<Self> {
+    pub fn analyze(func: &FunctionData) -> Self {
         let mut map = HashMap::new();
         let mut frame_size = 0;
 
@@ -30,16 +26,13 @@ impl LocalVars {
             for &inst in node.insts().keys() {
                 if let ValueKind::Alloc(_) = dfg.value(inst).kind() {
                     let size = 4; // i32
-                    let offset =
-                        i12::try_from(frame_size).map_err(|_| AnalysisError::TooManyLocals {
-                            span: metadata.name.span().into(),
-                        })?;
+                    let slot = FrameSlot::Local(frame_size);
                     frame_size += size;
-                    map.insert(inst, offset);
+                    map.insert(inst, slot);
                 }
             }
         }
 
-        Ok(Self { map, frame_size })
+        Self { map, frame_size }
     }
 }

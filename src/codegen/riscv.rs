@@ -3,7 +3,7 @@
 //! This module contains types for representing RISC-V instructions and
 //! programs.
 
-use std::{collections::HashMap, fmt::Display};
+use std::{cell::RefCell, collections::HashMap, fmt::Display};
 
 use key_node_list::{impl_node, KeyNodeList};
 
@@ -257,6 +257,8 @@ pub enum FrameSlot {
     Saved(i32),
     /// Argument.
     Arg(i32),
+    /// Parameter.
+    Param(i32),
 }
 
 impl FrameSlot {
@@ -269,6 +271,7 @@ impl FrameSlot {
             FrameSlot::Spilled(i) => frame.offset_spilled() + i,
             FrameSlot::Saved(i) => frame.offset_saved() + i,
             FrameSlot::Arg(i) => *i,
+            FrameSlot::Param(i) => frame.total() + i,
         }
     }
 }
@@ -383,6 +386,8 @@ pub enum Inst {
     Ret,
     /// Jump.
     J(BlockId),
+    /// Call
+    Call(FunctionId),
     /// Branch if equal.
     Beq(RegId, RegId, BlockId),
     /// Branch if equal to zero.
@@ -468,6 +473,7 @@ impl Display for Inst {
             Inst::Lhu(rd, imm, rs) => write!(f, "lhu {}, {}({})", rd, imm, rs),
             Inst::Ret => write!(f, "ret"),
             Inst::J(label) => write!(f, "j {}", label),
+            Inst::Call(func) => write!(f, "call {}", func.name().unwrap_or_default()),
             Inst::Beq(rs1, rs2, label) => write!(f, "beq {}, {}, {}", rs1, rs2, label),
             Inst::Beqz(rs, label) => write!(f, "beqz {}, {}", rs, label),
             Inst::Bge(rs1, rs2, label) => write!(f, "bge {}, {}, {}", rs1, rs2, label),
@@ -536,6 +542,7 @@ impl Inst {
             Inst::Lhu(rd, _, _) => Some(rd),
             Inst::Ret => None,
             Inst::J(_) => None,
+            Inst::Call(_) => None,
             Inst::Beq(_, _, _) => None,
             Inst::Beqz(_, _) => None,
             Inst::Bge(_, _, _) => None,
@@ -607,6 +614,7 @@ impl Inst {
             Inst::Lhu(_, _, rs) => [None, Some(rs)],
             Inst::Ret => [None, None],
             Inst::J(_) => [None, None],
+            Inst::Call(_) => [None, None],
             Inst::Beq(rs1, rs2, _) => [Some(rs1), Some(rs2)],
             Inst::Beqz(rs, _) => [None, Some(rs)],
             Inst::Bge(rs1, rs2, _) => [Some(rs1), Some(rs2)],
@@ -929,6 +937,7 @@ impl Display for Function {
             writeln!(f, "{}:", id)?;
             write!(f, "{}", block)?;
         }
+        writeln!(f)?;
         Ok(())
     }
 }
@@ -962,6 +971,26 @@ impl<'a> BlockCursor<'a> {
     /// Move the cursor to the next basic block.
     pub fn next(&mut self) {
         self.cursor.move_next();
+    }
+}
+
+utils::declare_u32_id!(FunctionId);
+
+thread_local! {
+    static FUNTION_NAMES: RefCell<HashMap<FunctionId, String>> = RefCell::new(HashMap::new());
+}
+
+impl FunctionId {
+    /// Set the name of the function.
+    pub fn set_name(&self, name: String) {
+        FUNTION_NAMES.with(|names| {
+            names.borrow_mut().insert(*self, name);
+        });
+    }
+
+    /// Get the name of the function.
+    pub fn name(&self) -> Option<String> {
+        FUNTION_NAMES.with(|names| names.borrow().get(self).cloned())
     }
 }
 

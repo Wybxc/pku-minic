@@ -94,6 +94,20 @@ impl RegAlloc {
         let mut map = HashMap::<Value, Storage>::new();
         let mut frame_size = 0;
 
+        for (i, &param) in func.params().iter().enumerate() {
+            match i {
+                0 => map.insert(param, Storage::Reg(RegId::A0)),
+                1 => map.insert(param, Storage::Reg(RegId::A1)),
+                2 => map.insert(param, Storage::Reg(RegId::A2)),
+                3 => map.insert(param, Storage::Reg(RegId::A3)),
+                4 => map.insert(param, Storage::Reg(RegId::A4)),
+                5 => map.insert(param, Storage::Reg(RegId::A5)),
+                6 => map.insert(param, Storage::Reg(RegId::A6)),
+                7 => map.insert(param, Storage::Reg(RegId::A7)),
+                _ => map.insert(param, Storage::Slot(FrameSlot::Param((i - 8) as i32 * 4))),
+            };
+        }
+
         // Scan basic blocks in topological order.
         let bbs = func.layout().bbs();
         for bb in dominators.iter() {

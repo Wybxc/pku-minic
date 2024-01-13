@@ -37,12 +37,13 @@ impl FunctionCalls {
                 let mut alive = alive.clone();
 
                 for &inst in node.insts().keys() {
+                    let value = func.dfg().value(inst);
                     let live_out = &liveliness.live_out[&inst];
                     for val in live_out.iter().flatten() {
                         alive.remove(val);
                     }
 
-                    if let ValueKind::Call(call) = func.dfg().value(inst).kind() {
+                    if let ValueKind::Call(call) = value.kind() {
                         // `alive` now contains all the variables that are alive after this
                         // instruction. If this instruction is a call, we
                         // need to save all the variables in `alive`, unless
@@ -68,7 +69,9 @@ impl FunctionCalls {
                         is_leaf = false;
                     }
 
-                    alive.insert(inst);
+                    if !value.ty().is_unit() {
+                        alive.insert(inst);
+                    }
                 }
             }
         }

@@ -25,6 +25,7 @@ use riscv::{Inst, RegId};
 
 use crate::{
     analysis::{
+        call::FunctionCalls,
         frame::Frame,
         localvar::LocalVars,
         register::{RegAlloc, Storage},
@@ -32,7 +33,7 @@ use crate::{
     },
     codegen::{
         imm::i12,
-        riscv::{Block, BlockId},
+        riscv::{Block, BlockId, FrameSlot, FunctionId},
     },
     utils,
 };
@@ -45,9 +46,10 @@ impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
     pub fn generate(self, analyzer: &mut Analyzer) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
+        let mut func_map = HashMap::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            let func = Codegen(func_data).generate(analyzer, func)?;
+            let func = Codegen(func_data).generate(analyzer, func, &mut func_map)?;
             program.push(func);
         }
         Ok(program)
@@ -56,21 +58,31 @@ impl Codegen<&koopa::ir::Program> {
 
 impl Codegen<&koopa::ir::FunctionData> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, analyzer: &mut Analyzer, func: Function) -> Result<riscv::Function> {
+    pub fn generate(
+        self,
+        analyzer: &mut Analyzer,
+        func: Function,
+        func_map: &mut HashMap<Function, FunctionId>,
+    ) -> Result<riscv::Function> {
         // Local variables.
-        let local_vars = analyzer.analyze_local_vars(func)?;
+        let local_vars = analyzer.analyze_local_vars(func);
         // Register allocation.
         let regs = analyzer.analyze_register_alloc(func);
         // Dominators tree.
         let dominators = analyzer.analyze_dominators(func);
         // Function calls.
-        // let calls = analyzer.analyze_function_calls(func);
+        let calls = analyzer.analyze_function_calls(func);
         // Frame size.
         let frame = analyzer.analyze_frame(func)?;
 
-        // Function builder.
+        // Add the function to the function map.
         let name = &self.0.name()[1..];
+        let func_id = FunctionId::next_id();
+        func_map.insert(func, func_id);
+
+        // Generate code for the function.
         let mut func = riscv::Function::new(name.to_string());
+        func_id.set_name(name.to_string());
         let dfg = self.0.dfg();
         let bbs = self.0.layout().bbs();
 
@@ -83,20 +95,24 @@ impl Codegen<&koopa::ir::FunctionData> {
             })
             .collect();
 
-        // Prologue.
+        // Prologue and epilogue.
         let frame_size = frame.total;
-        let prologue = if frame_size > 0 {
-            Some(Inst::Addi(RegId::SP, RegId::SP, -frame_size))
-        } else {
-            None
-        };
-
-        // Epilogue.
-        let epilogue = if frame_size > 0 {
-            Some(Inst::Addi(RegId::SP, RegId::SP, frame_size))
-        } else {
-            None
-        };
+        let mut prologue = vec![];
+        let mut epilogue = vec![];
+        if frame_size > 0 {
+            prologue.push(Inst::Addi(RegId::SP, RegId::SP, -frame_size));
+            epilogue.push(Inst::Addi(RegId::SP, RegId::SP, frame_size));
+        }
+        if !calls.is_leaf {
+            let slot = FrameSlot::RetAddr;
+            let slot = slot.offset(&frame.size);
+            let slot = i12::try_from(slot).unwrap();
+            prologue.push(Inst::Sw(RegId::RA, slot, RegId::SP));
+            epilogue.push(Inst::Lw(RegId::RA, slot, RegId::SP));
+        }
+        let prologue = prologue;
+        epilogue.reverse();
+        let epilogue = epilogue;
 
         // Generate code for the instruction.
         for bb in dominators.iter() {
@@ -108,7 +124,7 @@ impl Codegen<&koopa::ir::FunctionData> {
 
             let mut block = BlockBuilder::new(Block::new());
             if self.0.layout().entry_bb() == Some(bb) {
-                if let Some(prologue) = prologue {
+                for &prologue in prologue.iter() {
                     block.push(prologue);
                 }
             }
@@ -117,10 +133,12 @@ impl Codegen<&koopa::ir::FunctionData> {
                     &mut block,
                     dfg,
                     &bb_map,
+                    func_map,
                     &regs,
                     &local_vars,
+                    &calls,
                     &frame,
-                    epilogue,
+                    epilogue.iter(),
                 )?;
             }
             let block = block.build();
@@ -158,23 +176,26 @@ fn simple_bop_to_asm(op: BinaryOp, dst: RegId, lhs: RegId, rhs: RegId) -> Option
 impl Codegen<koopa::ir::entities::Value> {
     /// Generate code from Koopa IR for a single instruction.
     #[allow(clippy::too_many_arguments)]
-    pub fn generate(
+    pub fn generate<'a>(
         self,
         block: &mut BlockBuilder,
         dfg: &DataFlowGraph,
         bb_map: &HashMap<BasicBlock, BlockId>,
+        func_map: &HashMap<Function, FunctionId>,
         regs: &RegAlloc,
         local_vars: &LocalVars,
+        calls: &FunctionCalls,
         frame: &Frame,
-        epilogue: Option<Inst>,
+        epilogue: impl Iterator<Item = &'a Inst> + 'a,
     ) -> Result<()> {
-        match dfg.value(self.0).kind() {
+        let value = dfg.value(self.0);
+        match value.kind() {
             ValueKind::Return(ret) => {
                 if let Some(val) = ret.value() {
                     // Load the return value to a0.
                     Codegen(val).load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
                 }
-                if let Some(epilogue) = epilogue {
+                for &epilogue in epilogue.into_iter() {
                     block.push(epilogue);
                 }
                 block.push(Inst::Ret);
@@ -232,13 +253,17 @@ impl Codegen<koopa::ir::entities::Value> {
             }
             ValueKind::Store(store) => {
                 let val = Codegen(store.value());
-                let dest = local_vars.map[&store.dest()];
+                let slot = local_vars.map[&store.dest()];
+                let slot = slot.offset(&frame.size);
+                let slot = i12::try_from(slot).unwrap();
                 val.load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
-                block.push(Inst::Sw(RegId::A0, dest, RegId::SP));
+                block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
                 Ok(())
             }
             ValueKind::Load(load) => {
                 let src = local_vars.map[&load.src()];
+                let src = src.offset(&frame.size);
+                let src = i12::try_from(src).unwrap();
                 block.push(Inst::Lw(RegId::A0, src, RegId::SP));
                 match regs.map[&self.0] {
                     Storage::Reg(reg) => {
@@ -267,7 +292,66 @@ impl Codegen<koopa::ir::entities::Value> {
                 block.push(Inst::J(target));
                 Ok(())
             }
+            ValueKind::Call(call) => {
+                let func = func_map[&call.callee()];
 
+                // Save registers.
+                let save_regs = calls.save_regs[&self.0];
+                for (i, reg) in save_regs.iter().enumerate() {
+                    let slot = FrameSlot::Saved(i as i32 * 4);
+                    let slot = slot.offset(&frame.size);
+                    let slot = i12::try_from(slot).unwrap();
+                    block.push(Inst::Sw(reg, slot, RegId::SP));
+                }
+
+                // Set up arguments.
+                for (i, &arg) in call.args().iter().enumerate().rev() {
+                    match i {
+                        0 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A0)?,
+                        1 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A1)?,
+                        2 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A2)?,
+                        3 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A3)?,
+                        4 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A4)?,
+                        5 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A5)?,
+                        6 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A6)?,
+                        7 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A7)?,
+                        _ => {
+                            let slot = FrameSlot::Arg((i - 8) as i32 * 4);
+                            let slot = slot.offset(&frame.size);
+                            let slot = i12::try_from(slot).unwrap();
+                            let temp = RegId::A0; // load in reverse order, so a0 is available here
+                            Codegen(arg).load_value_to_reg(block, dfg, regs, frame, temp)?;
+                            block.push(Inst::Sw(temp, slot, RegId::SP));
+                        }
+                    }
+                }
+
+                // Call the function.
+                block.push(Inst::Call(func));
+
+                // Fetch return value.
+                if !value.ty().is_unit() {
+                    let storage = regs.map[&self.0];
+                    match storage {
+                        Storage::Reg(reg) => block.push(Inst::Mv(reg, RegId::A0)),
+                        Storage::Slot(slot) => {
+                            let slot = slot.offset(&frame.size);
+                            let slot = i12::try_from(slot).unwrap();
+                            block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                        }
+                    };
+                }
+
+                // Restore registers.
+                for (i, reg) in save_regs.iter().enumerate() {
+                    let slot = FrameSlot::Saved(i as i32 * 4);
+                    let slot = slot.offset(&frame.size);
+                    let slot = i12::try_from(slot).unwrap();
+                    block.push(Inst::Lw(reg, slot, RegId::SP));
+                }
+
+                Ok(())
+            }
             _ => panic!("unexpected value kind: {:?}", dfg.value(self.0).kind()),
         }
     }

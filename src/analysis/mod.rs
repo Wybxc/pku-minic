@@ -106,16 +106,15 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Analyse local variables of a function.
-    pub fn analyze_local_vars(&mut self, func: Function) -> Result<Rc<LocalVars>> {
+    pub fn analyze_local_vars(&mut self, func: Function) -> Rc<LocalVars> {
         if self.local_vars_cache.contains_key(&func) {
-            return Ok(self.local_vars_cache[&func].clone());
+            return self.local_vars_cache[&func].clone();
         }
         trace!(->[0] "MGR " => "Analyzing local variables of {:?}", func);
-        let local_vars =
-            LocalVars::analyze(self.program.func(func), &self.metadata.functions[&func])?;
+        let local_vars = LocalVars::analyze(self.program.func(func));
         let local_vars = Rc::new(local_vars);
         self.local_vars_cache.insert(func, local_vars.clone());
-        Ok(local_vars)
+        local_vars
     }
 
     /// Analyse register allocation of a function.
@@ -161,7 +160,7 @@ impl<'a> Analyzer<'a> {
             return Ok(self.frame_cache[&func].clone());
         }
         trace!(->[0] "MGR " => "Analyzing frame size of {:?}", func);
-        let local_vars = self.analyze_local_vars(func)?;
+        let local_vars = self.analyze_local_vars(func);
         let reg_alloc = self.analyze_register_alloc(func);
         let function_calls = self.analyze_function_calls(func);
         let frame = Frame::analyze(
