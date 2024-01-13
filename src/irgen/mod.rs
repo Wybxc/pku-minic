@@ -63,10 +63,56 @@ impl ast::CompUnit {
         program: &mut Program,
         metadata: &mut ProgramMetadata,
     ) -> Result<()> {
+        // decl @getint(): i32
+        self.decl_function(symtable, program, "@getint", vec![], Type::get_i32());
+        // decl @getch(): i32
+        self.decl_function(symtable, program, "@getch", vec![], Type::get_i32());
+        // decl @getarray(*i32): i32
+        // self.decl_function(symtable, program, "@getarray", vec![Type::get_ptr(Type::get_i32())], Type::get_i32());
+        // decl @putint(i32)
+        self.decl_function(
+            symtable,
+            program,
+            "@putint",
+            vec![Type::get_i32()],
+            Type::get_unit(),
+        );
+        // decl @putch(i32)
+        self.decl_function(
+            symtable,
+            program,
+            "@putch",
+            vec![Type::get_i32()],
+            Type::get_unit(),
+        );
+        // decl @putarray(i32, *i32)
+        // self.decl_function(symtable, program, "@putarray", vec![Type::get_i32(), Type::get_ptr(Type::get_i32())], Type::get_unit());
+        // decl @starttime()
+        self.decl_function(symtable, program, "@starttime", vec![], Type::get_unit());
+        // decl @stoptime()
+        self.decl_function(symtable, program, "@stoptime", vec![], Type::get_unit());
+
         for func in self.func_defs {
             func.build_ir_in(symtable, program, metadata)?;
         }
         Ok(())
+    }
+
+    fn decl_function(
+        &self,
+        symtable: &mut SymbolTable,
+        program: &mut Program,
+        name: &'static str,
+        params_ty: Vec<Type>,
+        ret_ty: Type,
+    ) {
+        let func = program.new_func(FunctionData::new_decl(name.into(), params_ty, ret_ty));
+        if symtable
+            .insert_var(name.into(), Symbol::Func(func))
+            .is_some()
+        {
+            unreachable!();
+        }
     }
 }
 

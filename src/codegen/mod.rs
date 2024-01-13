@@ -49,6 +49,10 @@ impl Codegen<&koopa::ir::Program> {
         let mut func_map = HashMap::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
+            if func_data.layout().entry_bb().is_none() {
+                // Skip functions declarations.
+                continue;
+            }
             let func = Codegen(func_data).generate(analyzer, func, &mut func_map)?;
             program.push(func);
         }
