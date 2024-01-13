@@ -16,12 +16,12 @@ use std::{
 use key_node_list::{impl_node, KeyNodeList};
 
 use super::imm::i12;
-use crate::utils;
+use crate::{codegen::builder::BlockBuilder, utils};
 
 /// RISC-V register.
 ///
 /// There is a pseudo register type, which is used for temporaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(dead_code, missing_docs)]
 pub enum RegId {
@@ -61,7 +61,7 @@ pub enum RegId {
 }
 
 /// Pseudo register.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct PseudoReg(u16);
 
 impl PseudoReg {
@@ -434,7 +434,12 @@ impl Display for PseudoInst {
 
 impl Inst {
     /// Get the destination register of the instruction.
-    pub fn dest(self) -> Option<RegId> {
+    pub fn dest(mut self) -> Option<RegId> {
+        self.dest_mut().copied()
+    }
+
+    /// Get the destination register of the instruction.
+    pub fn dest_mut(&mut self) -> Option<&mut RegId> {
         match self {
             Inst::Li(rd, _) => Some(rd),
             Inst::Mv(rd, _) => Some(rd),
@@ -648,6 +653,14 @@ impl Block {
         self.instructions.back_key().copied()
     }
 
+    /// Provide a cursor with immutable access to the instruction with the
+    /// given id.
+    pub fn cursor(&self, id: InstId) -> InstCursor<'_> {
+        InstCursor {
+            cursor: self.instructions.cursor(id),
+        }
+    }
+
     /// Provide a cursor with mutable access to the instruction with the given
     /// id.
     pub fn cursor_mut(&mut self, id: InstId) -> InstCursorMut<'_> {
@@ -674,6 +687,46 @@ impl Display for Block {
             writeln!(f, "    {}", node.inst)?;
         }
         Ok(())
+    }
+}
+
+/// Cursor with immutable access to an instruction in a basic block.
+pub struct InstCursor<'a> {
+    cursor: key_node_list::Cursor<'a, InstId, InstNode, HashMap<InstId, InstNode>>,
+}
+
+impl<'a> InstCursor<'a> {
+    /// Check if the cursor is null.
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
+
+    /// Get the instruction id.
+    pub fn id(&self) -> Option<InstId> {
+        self.cursor.key().cloned()
+    }
+
+    /// Get the instruction.
+    pub fn inst(&self) -> Option<Inst> {
+        self.cursor.node().map(|node| node.inst)
+    }
+
+    /// Move the cursor to the previous instruction.
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
+
+    /// Move the cursor to the next instruction.
+    pub fn next(&mut self) {
+        self.cursor.move_next();
+    }
+
+    /// Get an iterator over the following instructions, not including the
+    /// current instruction.
+    pub fn followings(&self) -> impl Iterator<Item = (InstId, Inst)> + '_ {
+        let mut cursor = self.cursor.clone();
+        cursor.move_next();
+        FollowInsts { cursor }
     }
 }
 
@@ -814,6 +867,8 @@ type BlockList = KeyNodeList<BlockId, BlockNode, HashMap<BlockId, BlockNode>>;
 pub struct Function {
     /// Name of the function.
     pub name: String,
+    /// Local variables size of the function.
+    pub local_size: i32,
     /// Frame size of the function.
     pub frame_size: Option<NonZeroU32>,
     /// Basic blocks in the function.
@@ -822,16 +877,18 @@ pub struct Function {
 
 impl Function {
     /// Create a new function.
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, local_size: i32) -> Self {
         Self {
             name,
+            local_size,
             frame_size: None,
             blocks: BlockList::new(),
         }
     }
 
     /// Add a basic block to the function.
-    pub fn push(&mut self, id: BlockId, block: Block) -> BlockId {
+    pub fn push(&mut self, block: BlockBuilder) -> BlockId {
+        let (id, block) = block.build();
         let node = BlockNode::new(block);
         self.blocks.push_back(id, node).unwrap();
         id
@@ -840,6 +897,11 @@ impl Function {
     /// Get the basic block with the given id.
     pub fn get(&self, id: BlockId) -> Option<&Block> {
         self.blocks.node(&id).map(|node| &node.block)
+    }
+
+    /// Get the basic block with the given id.
+    pub fn get_mut(&mut self, id: BlockId) -> Option<&mut Block> {
+        self.blocks.node_mut(&id).map(|node| &mut node.block)
     }
 
     /// Number of basic blocks in the function.
@@ -864,9 +926,21 @@ impl Function {
         }
     }
 
+    /// Provide a cursor to the basic block with the given id.
+    pub fn cursor_mut(&mut self, id: BlockId) -> BlockCursorMut<'_> {
+        BlockCursorMut {
+            cursor: self.blocks.cursor_mut(id),
+        }
+    }
+
     /// The first basic block id in the function.
     pub fn entry(&self) -> Option<BlockId> {
         self.blocks.front_key().copied()
+    }
+
+    /// The basic block following the given basic block.
+    pub fn follow(&self, id: BlockId) -> Option<BlockId> {
+        self.blocks.cursor(id).next_key().copied()
     }
 }
 
@@ -913,6 +987,85 @@ impl<'a> BlockCursor<'a> {
     /// Move the cursor to the next basic block.
     pub fn next(&mut self) {
         self.cursor.move_next();
+    }
+}
+
+/// Cursor to a basic block in a function.
+pub struct BlockCursorMut<'a> {
+    cursor: key_node_list::CursorMut<'a, BlockId, BlockNode, HashMap<BlockId, BlockNode>>,
+}
+
+impl<'a> BlockCursorMut<'a> {
+    /// Check if the cursor is null.
+    pub fn is_null(&self) -> bool {
+        self.cursor.is_null()
+    }
+
+    /// Get the basic block id.
+    pub fn id(&self) -> Option<BlockId> {
+        self.cursor.key().copied()
+    }
+
+    /// Get the basic block.
+    pub fn block(&self) -> Option<&Block> {
+        self.cursor.node().map(|node| &node.block)
+    }
+
+    /// Get the basic block.
+    pub fn block_mut(&mut self) -> Option<&mut Block> {
+        self.cursor.node_mut().map(|node| &mut node.block)
+    }
+
+    /// Set the basic block. If the cursor is null, this function does nothing.
+    pub fn set_block(&mut self, block: Block) {
+        if let Some(node) = self.cursor.node_mut() {
+            node.block = block;
+        }
+    }
+
+    /// Move the cursor to the previous basic block.
+    pub fn prev(&mut self) {
+        self.cursor.move_prev();
+    }
+
+    /// Move the cursor to the next basic block.
+    pub fn next(&mut self) {
+        self.cursor.move_next();
+    }
+
+    /// Insert a new basic block before the current basic block.
+    pub fn insert_before(&mut self, block: Block) -> BlockId {
+        let id = BlockId::next_id();
+        let node = BlockNode::new(block);
+        self.cursor.insert_before(id, node).unwrap();
+        id
+    }
+
+    /// Insert a new basic block after the current basic block.
+    pub fn insert_after(&mut self, block: Block) -> BlockId {
+        let id = BlockId::next_id();
+        let node = BlockNode::new(block);
+        self.cursor.insert_after(id, node).unwrap();
+        id
+    }
+
+    /// Remove the current basic block, and move the cursor to the next basic
+    /// block.
+    ///
+    /// If the cursor is null, this function does nothing.
+    pub fn remove_and_next(&mut self) {
+        self.cursor.remove_current();
+    }
+
+    /// Remove the current basic block, and move the cursor to the previous
+    /// basic block.
+    ///
+    /// If the cursor is null, this function does nothing.
+    pub fn remove_and_prev(&mut self) {
+        self.cursor.remove_current();
+        if !self.cursor.is_null() {
+            self.cursor.move_prev();
+        }
     }
 }
 

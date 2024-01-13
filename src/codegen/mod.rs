@@ -18,6 +18,8 @@ use miette::Result;
 mod builder;
 pub mod error;
 pub mod imm;
+mod liveliness;
+mod passes;
 pub mod riscv;
 
 use builder::BlockBuilder;
@@ -63,7 +65,7 @@ impl Codegen<&koopa::ir::FunctionData> {
         func_map.insert(func, id);
 
         // Function builder.
-        let mut func = riscv::Function::new(name);
+        let mut func = riscv::Function::new(name, 0);
         let dfg = self.0.dfg();
         let bbs = self.0.layout().bbs();
 
@@ -93,25 +95,32 @@ impl Codegen<&koopa::ir::FunctionData> {
         // Generate code for the instruction.
         for bb in metadata.dominators.iter() {
             let node = bbs.node(&bb).unwrap();
-            let id = bb_map[&bb];
             // if let Some(label) = dfg.bb(bb).name() {
             //     id.set_label(label.clone());
             // }
 
-            let mut block = BlockBuilder::new(Block::new());
+            let mut block = BlockBuilder::new(bb_map[&bb], Block::new());
             if self.0.layout().entry_bb() == Some(bb) {
                 block.push(Inst::Pseudo(PseudoInst::AllocFrame));
             }
             for &inst in node.insts().keys() {
-                Codegen(inst).generate(&mut block, dfg, &value_map, &bb_map, func_map);
+                Codegen(inst).generate(
+                    &mut block,
+                    |block| {
+                        let next_block = BlockBuilder::new(BlockId::next_id(), Block::new());
+                        let block = std::mem::replace(block, next_block);
+                        func.push(block);
+                    },
+                    dfg,
+                    &value_map,
+                    &bb_map,
+                    func_map,
+                );
             }
-            let block = block.build();
-
-            // // peephole optimization.
-            // peephole::optimize(&mut block, opt_level);
-
-            func.push(id, block);
+            func.push(block);
         }
+
+        passes::register::register_alloc(&mut func);
 
         Ok(func)
     }
@@ -142,6 +151,7 @@ impl Codegen<koopa::ir::entities::Value> {
     pub fn generate(
         self,
         block: &mut BlockBuilder,
+        mut new_block: impl FnMut(&mut BlockBuilder),
         dfg: &DataFlowGraph,
         value_map: &HashMap<Value, Storage>,
         bb_map: &HashMap<BasicBlock, BlockId>,
@@ -210,6 +220,7 @@ impl Codegen<koopa::ir::entities::Value> {
                 let then = bb_map[&branch.true_bb()];
                 let els = bb_map[&branch.false_bb()];
                 block.push(Inst::Beqz(cond, els));
+                new_block(block);
                 block.push(Inst::J(then));
             }
             ValueKind::Jump(jump) => {
