@@ -25,6 +25,7 @@ use riscv::{Inst, RegId};
 
 use crate::{
     analysis::{
+        localvar::LocalVars,
         register::{RegAlloc, Storage},
         Analyzer,
     },
@@ -52,6 +53,8 @@ impl Codegen<&koopa::ir::Program> {
 impl Codegen<&koopa::ir::FunctionData> {
     /// Generate code from Koopa IR.
     pub fn generate(self, analyzer: &mut Analyzer, func: Function) -> Result<riscv::Function> {
+        // Local variables.
+        let local_vars = analyzer.analyze_local_vars(func)?;
         // Register allocation.
         let regs = analyzer.analyze_register_alloc(func)?;
         // Dominators tree.
@@ -102,7 +105,7 @@ impl Codegen<&koopa::ir::FunctionData> {
                 }
             }
             for &inst in node.insts().keys() {
-                Codegen(inst).generate(&mut block, dfg, &bb_map, &regs, epilogue)?;
+                Codegen(inst).generate(&mut block, dfg, &bb_map, &regs, &local_vars, epilogue)?;
             }
             let block = block.build();
 
@@ -144,6 +147,7 @@ impl Codegen<koopa::ir::entities::Value> {
         dfg: &DataFlowGraph,
         bb_map: &HashMap<BasicBlock, BlockId>,
         regs: &RegAlloc,
+        local_vars: &LocalVars,
         epilogue: Option<Inst>,
     ) -> Result<()> {
         match dfg.value(self.0).kind() {
@@ -203,37 +207,25 @@ impl Codegen<koopa::ir::entities::Value> {
                 Ok(())
             }
             ValueKind::Alloc(_) => {
-                // Nothing to do here. Arrays will be considered in the future.
+                // Nothing to do here.
                 Ok(())
             }
             ValueKind::Store(store) => {
                 let val = Codegen(store.value());
-                match regs.get(store.dest()) {
-                    Storage::Reg(reg) => {
-                        // Load the value to the register.
-                        val.load_value_to_reg(block, dfg, regs, reg)?
-                    }
-                    Storage::Slot(slot) => {
-                        // Load the value to a0.
-                        val.load_value_to_reg(block, dfg, regs, RegId::A0)?;
-
-                        // Write the value to stack.
-                        block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
-                    }
-                }
+                let dest = local_vars.map[&store.dest()];
+                val.load_value_to_reg(block, dfg, regs, RegId::A0)?;
+                block.push(Inst::Sw(RegId::A0, dest, RegId::SP));
                 Ok(())
             }
             ValueKind::Load(load) => {
-                let src = Codegen(load.src());
+                let src = local_vars.map[&load.src()];
+                block.push(Inst::Lw(RegId::A0, src, RegId::SP));
                 match regs.get(self.0) {
                     Storage::Reg(reg) => {
                         // Load the value to the register.
-                        src.load_value_to_reg(block, dfg, regs, reg)?;
+                        block.push(Inst::Mv(reg, RegId::A0));
                     }
                     Storage::Slot(slot) => {
-                        // Load the value to a0.
-                        src.load_value_to_reg(block, dfg, regs, RegId::A0)?;
-
                         // Write the value to stack.
                         block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
                     }

@@ -175,8 +175,8 @@ fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
         }
         ValueKind::Store(store) => {
             let val = Some(store.value()).filter(is_var);
-            let ptr = Some(store.dest()).filter(is_var);
-            [val, ptr]
+            // let ptr = Some(store.dest()).filter(is_var);
+            [val, None]
         }
         ValueKind::Load(load) => {
             let addr = Some(load.src()).filter(is_var);

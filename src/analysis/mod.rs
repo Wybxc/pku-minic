@@ -9,7 +9,8 @@ use nolog::*;
 
 use crate::{
     analysis::{
-        cfg::ControlFlowGraph, dominators::Dominators, liveliness::Liveliness, register::RegAlloc,
+        cfg::ControlFlowGraph, dominators::Dominators, liveliness::Liveliness, localvar::LocalVars,
+        register::RegAlloc,
     },
     irgen::metadata::ProgramMetadata,
 };
@@ -18,6 +19,7 @@ pub mod cfg;
 pub mod dominators;
 pub mod error;
 pub mod liveliness;
+pub mod localvar;
 pub mod register;
 
 /// Program analyser.
@@ -27,6 +29,7 @@ pub struct Analyzer<'a> {
     cfg_cache: HashMap<Function, Rc<ControlFlowGraph>>,
     dominators_cache: HashMap<Function, Rc<Dominators>>,
     liveliness_cache: HashMap<Function, Rc<Liveliness>>,
+    local_vars_cache: HashMap<Function, Rc<LocalVars>>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -38,11 +41,14 @@ impl<'a> Analyzer<'a> {
             cfg_cache: HashMap::new(),
             dominators_cache: HashMap::new(),
             liveliness_cache: HashMap::new(),
+            local_vars_cache: HashMap::new(),
         }
     }
 
     /// Get the program being analysed.
-    pub fn program(&self) -> &Program { self.program }
+    pub fn program(&self) -> &Program {
+        self.program
+    }
 
     /// Analyse the control flow graph of a function.
     ///
@@ -91,6 +97,19 @@ impl<'a> Analyzer<'a> {
             .clone()
     }
 
+    /// Analyse local variables of a function.
+    pub fn analyze_local_vars(&mut self, func: Function) -> Result<Rc<LocalVars>> {
+        if self.local_vars_cache.contains_key(&func) {
+            return Ok(self.local_vars_cache[&func].clone());
+        }
+        trace!(->[0] "MGR " => "Analyzing local variables of {:?}", func);
+        let local_vars =
+            LocalVars::analyze(self.program.func(func), &self.metadata.functions[&func])?;
+        let local_vars = Rc::new(local_vars);
+        self.local_vars_cache.insert(func, local_vars.clone());
+        Ok(local_vars)
+    }
+
     /// Analyse register allocation of a function.
     ///
     /// Note: this analysis does not have a cache.
@@ -98,9 +117,11 @@ impl<'a> Analyzer<'a> {
         trace!(->[0] "MGR " => "Analyzing register allocation of {:?}", func);
         let liveliness = self.analyze_liveliness(func);
         let dominators = self.analyze_dominators(func);
+        let local_vars = self.analyze_local_vars(func)?;
         RegAlloc::analyze(
             liveliness.as_ref(),
             dominators.as_ref(),
+            local_vars.as_ref(),
             self.program.func(func),
             &self.metadata.functions[&func],
         )
