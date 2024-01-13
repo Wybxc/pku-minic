@@ -283,11 +283,19 @@ impl Codegen<koopa::ir::entities::Value> {
             }
             ValueKind::Store(store) => {
                 let val = Codegen(store.value());
-                let slot = local_vars.map[&store.dest()];
-                let slot = slot.offset(&frame.size);
-                let slot = i12::try_from(slot).unwrap();
-                val.load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
-                block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                if global.values.contains_key(&store.dest()) {
+                    // global variable
+                    block.push(Inst::La(RegId::A0, global.values[&store.dest()].id));
+                    val.load_value_to_reg(block, dfg, regs, frame, RegId::T0)?;
+                    block.push(Inst::Sw(RegId::T0, 0.try_into().unwrap(), RegId::A0));
+                } else {
+                    // local variable
+                    let slot = local_vars.map[&store.dest()];
+                    let slot = slot.offset(&frame.size);
+                    let slot = i12::try_from(slot).unwrap();
+                    val.load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
+                    block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                }
                 Ok(())
             }
             ValueKind::Load(load) => {
@@ -385,12 +393,15 @@ impl Codegen<koopa::ir::entities::Value> {
                 // Schedule moves.
                 let nodes = moves.len();
                 {
+                    // block.push(Inst::Nop); // for debugging
                     use petgraph::prelude::*;
                     let mut graph = DiGraph::with_capacity(nodes, nodes);
                     for (&target, &arg) in moves.iter() {
-                        let target: NodeIndex = graph.add_node(target);
-                        let arg: NodeIndex = graph.add_node(arg);
-                        graph.add_edge(target, arg, ());
+                        if target != arg {
+                            let target: NodeIndex = graph.add_node(target);
+                            let arg: NodeIndex = graph.add_node(arg);
+                            graph.add_edge(target, arg, ());
+                        }
                     }
                     let mut scc = petgraph::algo::kosaraju_scc(&graph);
                     scc.reverse(); // topological order
@@ -413,6 +424,7 @@ impl Codegen<koopa::ir::entities::Value> {
                             block.push(Inst::Mv(after, RegId::T0));
                         }
                     }
+                    // block.push(Inst::Nop); // for debugging
                 }
 
                 for (target, arg) in after_moves.into_iter() {

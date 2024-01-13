@@ -126,8 +126,8 @@ impl RegAlloc {
 
             for &inst in node.insts().keys() {
                 // Drop dead variables.
-                for val in live_out[&inst].iter().filter_map(|&v| v) {
-                    if let Some(reg) = map.get(&val).copied().and_then(Storage::local) {
+                for val in live_out[&inst].iter() {
+                    if let Some(reg) = map.get(val).copied().and_then(Storage::local) {
                         free.insert(reg);
                     }
                 }

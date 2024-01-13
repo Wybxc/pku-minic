@@ -24,7 +24,7 @@ pub struct Liveliness {
     /// Live variables at the beginning of each block.
     pub live_in: HashMap<BasicBlock, HashSet<Value>>,
     /// Dead variables after each instruction.
-    pub live_out: HashMap<Value, [Option<Value>; 2]>,
+    pub live_out: HashMap<Value, Vec<Value>>,
 }
 
 impl Liveliness {
@@ -45,7 +45,7 @@ struct LivelinessAnalyzer<'a> {
     /// Variables live at the beginning of each block.
     live_in: HashMap<BasicBlock, HashSet<Value>>,
     /// Variables live out of each instruction.
-    live_out: HashMap<Value, [Option<Value>; 2]>,
+    live_out: HashMap<Value, Vec<Value>>,
 }
 
 impl<'a> LivelinessAnalyzer<'a> {
@@ -85,20 +85,14 @@ impl<'a> LivelinessAnalyzer<'a> {
             let after = self.after_mut(bb).clone();
             for &inst in node.insts().keys() {
                 let live_out = self.live_out.get_mut(&inst).unwrap();
-                for op in live_out.iter_mut() {
-                    if let Some(val) = op {
-                        if after.contains(val) {
-                            *op = None;
-                        }
-                    }
-                }
+                live_out.retain(|val| !after.contains(val));
 
                 trace!("VLA " => "live_out of `{}`: {}", utils::dbg_inst(inst, self.func.dfg()), {
-                    let live_out = live_out.map(|v| {
-                        v.map(|v| utils::ident_inst(v, self.func.dfg()))
-                            .unwrap_or_default()
-                    });
-                    format!("[{}, {}]", live_out[0], live_out[1])
+                    live_out
+                        .iter()
+                        .map(|v| utils::ident_inst(*v, self.func.dfg()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 });
             }
         }
@@ -137,14 +131,10 @@ impl<'a> LivelinessAnalyzer<'a> {
 
             trace!(->[0] "VLA " => "analyzing `{}`", utils::dbg_inst(inst, self.func.dfg()));
             let mut ops = operand_vars(inst, self.func.dfg());
-            for op in ops.iter_mut() {
-                if let Some(val) = op {
-                    // Not last use. The variable will not die here.
-                    if used.insert(*val).is_some() {
-                        *op = None;
-                    }
-                }
-            }
+            ops.retain(|val| {
+                // Not last use. The variable will not die here.
+                used.insert(*val).is_none()
+            });
             let value = self.func.dfg().value(inst);
             if !value.ty().is_unit() && !matches!(value.kind(), koopa::ir::ValueKind::Alloc(_)) {
                 defined.insert(inst);
@@ -166,31 +156,39 @@ impl<'a> LivelinessAnalyzer<'a> {
 }
 
 /// Get operands of an instruction, only return variables.
-fn operand_vars(value: Value, dfg: &DataFlowGraph) -> [Option<Value>; 2] {
+fn operand_vars(value: Value, dfg: &DataFlowGraph) -> Vec<Value> {
     let is_var = |v: &Value| dfg.values().get(v).is_some_and(|v| !utils::is_const(v));
     match dfg.value(value).kind() {
         ValueKind::Return(ret) => {
             let val = ret.value().filter(is_var);
-            [val, None]
+            val.iter().copied().collect()
         }
         ValueKind::Binary(bin) => {
             let lhs = bin.lhs();
             let rhs = bin.rhs();
             [Some(lhs).filter(is_var), Some(rhs).filter(is_var)]
+                .iter()
+                .flatten()
+                .copied()
+                .collect()
         }
         ValueKind::Store(store) => {
             let val = Some(store.value()).filter(is_var);
             // let ptr = Some(store.dest()).filter(is_var);
-            [val, None]
+            val.iter().copied().collect()
         }
         ValueKind::Load(load) => {
             let addr = Some(load.src()).filter(is_var);
-            [addr, None]
+            addr.iter().copied().collect()
         }
         ValueKind::Branch(branch) => {
             let cond = Some(branch.cond()).filter(is_var);
-            [cond, None]
+            cond.iter().copied().collect()
         }
-        _ => [None; 2],
+        ValueKind::Call(call) => {
+            let args = call.args().iter().copied().filter(is_var);
+            args.collect()
+        }
+        _ => vec![],
     }
 }

@@ -41,7 +41,7 @@ impl FunctionCalls {
                 for &inst in node.insts().keys() {
                     let value = func.dfg().value(inst);
                     let live_out = &liveliness.live_out[&inst];
-                    for val in live_out.iter().flatten() {
+                    for val in live_out.iter() {
                         alive.remove(val);
                     }
 
