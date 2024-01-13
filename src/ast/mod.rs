@@ -8,20 +8,47 @@ pub(crate) mod display;
 /// Compilation Unit
 ///
 /// ```text
-/// CompUnit ::= {FuncDef}
+/// CompUnit ::= {TopLevelItem}
 /// ```
 #[derive(Debug, Clone)]
 pub struct CompUnit {
-    pub func_defs: Vec<FuncDef>,
+    pub top_levels: Vec<TopLevelItem>,
 }
 
 impl Spanned for CompUnit {
     fn start_pos(&self) -> usize {
-        self.func_defs[0].start_pos()
+        self.top_levels[0].start_pos()
     }
 
     fn end_pos(&self) -> usize {
-        self.func_defs[self.func_defs.len() - 1].end_pos()
+        self.top_levels[self.top_levels.len() - 1].end_pos()
+    }
+}
+
+/// Top Level Item
+///
+/// ```text
+/// TopLevelItem ::= FuncDef | Decl
+/// ```
+#[derive(Debug, Clone)]
+pub enum TopLevelItem {
+    FuncDef(FuncDef),
+    Decl(Decl),
+}
+
+impl Spanned for TopLevelItem {
+    fn start_pos(&self) -> usize {
+        match self {
+            TopLevelItem::FuncDef(func_def) => func_def.start_pos(),
+            TopLevelItem::Decl(decl) => decl.start_pos(),
+        }
+    }
+
+    fn end_pos(&self) -> usize {
+        match self {
+            TopLevelItem::FuncDef(func_def) => func_def.end_pos(),
+            TopLevelItem::Decl(decl) => decl.end_pos(),
+        }
     }
 }
 
@@ -33,7 +60,7 @@ impl Spanned for CompUnit {
 /// ```
 #[derive(Debug, Clone)]
 pub struct FuncDef {
-    pub func_type: Span<FuncType>,
+    pub func_type: Span<BType>,
     pub ident: Span<String>,
     pub params: Vec<FuncParam>,
     pub block: Span<Block>,
@@ -48,19 +75,6 @@ impl Spanned for FuncDef {
         self.block.end_pos()
     }
 }
-
-/// Function Type
-///
-/// ```text
-/// FuncType ::= "int"
-/// ```
-#[derive(Debug, Clone, Copy)]
-pub enum FuncType {
-    Int,
-    Void,
-}
-
-impl NonSpanned for FuncType {}
 
 /// Function Parameter
 ///
@@ -248,6 +262,7 @@ impl Spanned for InitVal {
 #[derive(Debug, Clone)]
 pub enum BType {
     Int,
+    Void,
 }
 
 impl NonSpanned for BType {}

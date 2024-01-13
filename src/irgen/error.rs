@@ -15,6 +15,14 @@ pub enum CompileError {
         span: SourceSpan,
     },
 
+    /// variable type cannot be void
+    #[error("variable type cannot be void")]
+    #[diagnostic(code(minic::var_type_void))]
+    VariableTypeVoid {
+        #[label("variable type cannot be void")]
+        span: SourceSpan,
+    },
+
     /// variable not found
     #[error("variable not found")]
     #[diagnostic(code(minic::var_not_found))]

@@ -14,18 +14,18 @@ match {
 
 // Syntax rules
 
-pub CompUnit: CompUnit = <func_defs: FuncDef*> => CompUnit { func_defs: func_defs.into() };
+pub CompUnit: CompUnit = <top_levels: TopLevelItem*> => CompUnit { top_levels: top_levels.into() };
+
+TopLevelItem: TopLevelItem = {
+  <func_def: FuncDef> => TopLevelItem::FuncDef(<>),
+  <decl: Decl> => TopLevelItem::Decl(<>),
+};
 
 FuncDef: FuncDef = {
-  <func_type: FuncType> <ident: Ident> "(" <params: FuncParams?> ")" <block: Block> => {
+  <func_type: BType> <ident: Ident> "(" <params: FuncParams?> ")" <block: Block> => {
     let params = params.unwrap_or_default();
     FuncDef { func_type, ident, params: params.into(), block }
   }
-};
-
-FuncType: Span<FuncType> = {
-  <start:@L> "int" <end:@R> => FuncType::Int.into_span(start, end),
-  <start:@L> "void" <end:@R> => FuncType::Void.into_span(start, end),
 };
 
 FuncParams: Vec<FuncParam> = {
@@ -55,7 +55,10 @@ Decl: Decl = {
   <var_decl: VarDecl> => Decl::Var(<>),
 };
 
-BType: Span<BType> = <start:@L> "int" <end:@R> => BType::Int.into_span(start, end);
+BType: Span<BType> = {
+  <start:@L> "int" <end:@R> => BType::Int.into_span(start, end),
+  <start:@L> "void" <end:@R> => BType::Void.into_span(start, end),
+};
 
 ConstDecl: Span<ConstDecl> = {
   <start:@L> "const" <ty: BType> <mut defs: (<ConstDef> ",")*> <def: ConstDef> ";" <end:@R> => {

@@ -6,18 +6,18 @@ use koopa::ir::{
 };
 use miette::Result;
 
-use crate::ast;
+use crate::ast::{self};
 
 /// Basic block layout builder.
 pub struct LayoutBuilder<'a> {
     func: &'a mut FunctionData,
     current: BasicBlock,
-    rtype: ast::FuncType,
+    rtype: ast::BType,
 }
 
 impl<'a> LayoutBuilder<'a> {
     /// Create a new layout builder.
-    pub fn new(func: &'a mut FunctionData, rtype: ast::FuncType) -> Self {
+    pub fn new(func: &'a mut FunctionData, rtype: ast::BType) -> Self {
         let entry = func.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         func.layout_mut()
             .bbs_mut()

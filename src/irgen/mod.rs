@@ -92,8 +92,13 @@ impl ast::CompUnit {
         // decl @stoptime()
         self.decl_function(symtable, program, "@stoptime", vec![], Type::get_unit());
 
-        for func in self.func_defs {
-            func.build_ir_in(symtable, program, metadata)?;
+        for item in self.top_levels {
+            match item {
+                ast::TopLevelItem::FuncDef(func_def) => {
+                    func_def.build_ir_in(symtable, program, metadata)?;
+                }
+                ast::TopLevelItem::Decl(_) => todo!(),
+            }
         }
         Ok(())
     }
@@ -173,24 +178,6 @@ impl ast::FuncDef {
     }
 }
 
-impl ast::FuncType {
-    /// Build IR from AST.
-    pub fn build_ir(self) -> Type {
-        match self {
-            ast::FuncType::Int => Type::get_i32(),
-            ast::FuncType::Void => Type::get_unit(),
-        }
-    }
-
-    /// Default value of the type.
-    pub fn default_value(self, dfg: &mut DataFlowGraph) -> Option<Value> {
-        match self {
-            ast::FuncType::Int => Some(dfg.new_value().integer(0)),
-            ast::FuncType::Void => None,
-        }
-    }
-}
-
 impl ast::FuncParam {
     /// Build IR from AST.
     pub fn build_ir(&self) -> (Option<String>, Type) {
@@ -255,6 +242,15 @@ impl ast::BType {
     pub fn build_ir(&self) -> Type {
         match self {
             ast::BType::Int => Type::get_i32(),
+            ast::BType::Void => Type::get_unit(),
+        }
+    }
+
+    /// Default value of the type.
+    pub fn default_value(&self, dfg: &mut DataFlowGraph) -> Option<Value> {
+        match self {
+            ast::BType::Int => Some(dfg.new_value().integer(0)),
+            ast::BType::Void => None,
         }
     }
 }
@@ -313,6 +309,11 @@ impl ast::VarDef {
         // Allocate a new variable.
         let span = self.ident.span().into();
         let dfg = layout.dfg_mut();
+
+        if matches!(ty, ast::BType::Void) {
+            Err(CompileError::VariableTypeVoid { span })?;
+        }
+
         let var = dfg.new_value().alloc(ty.build_ir());
         dfg.set_value_name(var, Some(format!("@{}", self.ident.node)));
         layout.push_inst(var);

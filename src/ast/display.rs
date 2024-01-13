@@ -6,25 +6,25 @@ use super::*;
 
 impl Display for CompUnit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for func in &self.func_defs {
-            writeln!(f, "{}\n", func)?;
+        for item in &self.top_levels {
+            writeln!(f, "{}\n", item)?;
         }
         Ok(())
+    }
+}
+
+impl Display for TopLevelItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TopLevelItem::FuncDef(func_def) => write!(f, "{}", func_def),
+            TopLevelItem::Decl(decl) => write!(f, "{}", decl),
+        }
     }
 }
 
 impl Display for FuncDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {}() {}", self.func_type, self.ident, self.block)
-    }
-}
-
-impl Display for FuncType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FuncType::Int => write!(f, "int"),
-            FuncType::Void => write!(f, "void"),
-        }
     }
 }
 
@@ -87,6 +87,7 @@ impl Display for BType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BType::Int => write!(f, "int"),
+            BType::Void => write!(f, "void"),
         }
     }
 }
