@@ -342,25 +342,81 @@ impl Codegen<koopa::ir::entities::Value> {
                 }
 
                 // Set up arguments.
-                for (i, &arg) in call.args().iter().enumerate().rev() {
-                    match i {
-                        0 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A0)?,
-                        1 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A1)?,
-                        2 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A2)?,
-                        3 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A3)?,
-                        4 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A4)?,
-                        5 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A5)?,
-                        6 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A6)?,
-                        7 => Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A7)?,
-                        _ => {
-                            let slot = FrameSlot::Arg((i - 8) as i32 * 4);
-                            let slot = slot.offset(&frame.size);
-                            let slot = i12::try_from(slot).unwrap();
-                            let temp = RegId::A0; // load in reverse order, so a0 is available here
-                            Codegen(arg).load_value_to_reg(block, dfg, regs, frame, temp)?;
-                            block.push(Inst::Sw(temp, slot, RegId::SP));
+
+                // Save 9th and later arguments to stack.
+                for (i, &arg) in call.args().iter().skip(8).enumerate() {
+                    let slot = FrameSlot::Arg(i as i32 * 4);
+                    let slot = slot.offset(&frame.size);
+                    let slot = i12::try_from(slot).unwrap();
+                    let temp = RegId::A0; // load in reverse order, so a0 is available here
+                    Codegen(arg).load_value_to_reg(block, dfg, regs, frame, temp)?;
+                    block.push(Inst::Sw(temp, slot, RegId::SP));
+                }
+
+                // Save first 8 arguments to registers.
+                // Schedule moves to avoid overwriting arguments.
+                // `mv ai, aj` is scheduled before `mv aj, ak`.
+                let mut moves = HashMap::new();
+                let mut after_moves = vec![];
+                for (i, &arg) in call.args().iter().enumerate().take(8) {
+                    let target = match i {
+                        0 => RegId::A0,
+                        1 => RegId::A1,
+                        2 => RegId::A2,
+                        3 => RegId::A3,
+                        4 => RegId::A4,
+                        5 => RegId::A5,
+                        6 => RegId::A6,
+                        7 => RegId::A7,
+                        _ => unreachable!(),
+                    };
+                    if let Some(reg) = regs.map.get(&arg).and_then(|storage| match storage {
+                        Storage::Reg(reg) => Some(*reg),
+                        _ => None,
+                    }) {
+                        if RegId::A0 <= reg && reg <= RegId::A7 {
+                            moves.insert(target, reg);
+                            continue;
                         }
                     }
+                    after_moves.push((target, arg));
+                }
+
+                // Schedule moves.
+                let nodes = moves.len();
+                {
+                    use petgraph::prelude::*;
+                    let mut graph = DiGraph::with_capacity(nodes, nodes);
+                    for (&target, &arg) in moves.iter() {
+                        let target: NodeIndex = graph.add_node(target);
+                        let arg: NodeIndex = graph.add_node(arg);
+                        graph.add_edge(target, arg, ());
+                    }
+                    let mut scc = petgraph::algo::kosaraju_scc(&graph);
+                    scc.reverse(); // topological order
+                    for scc in scc.into_iter() {
+                        if scc.len() == 1 {
+                            let target = graph[scc[0]];
+                            if let Some(&arg) = moves.get(&target) {
+                                block.push(Inst::Mv(target, arg));
+                            }
+                        } else {
+                            let mut target = graph[scc[0]];
+                            let mut arg = moves[&target];
+                            block.push(Inst::Mv(RegId::T0, target));
+                            for _ in 1..scc.len() {
+                                block.push(Inst::Mv(target, arg));
+                                target = arg;
+                                arg = moves[&target];
+                            }
+                            let after = moves[&arg];
+                            block.push(Inst::Mv(after, RegId::T0));
+                        }
+                    }
+                }
+
+                for (target, arg) in after_moves.into_iter() {
+                    Codegen(arg).load_value_to_reg(block, dfg, regs, frame, target)?;
                 }
 
                 // Call the function.

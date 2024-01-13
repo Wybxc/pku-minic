@@ -11,7 +11,7 @@ use super::imm::i12;
 use crate::utils;
 
 /// RISC-V register.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(dead_code, missing_docs)]
 pub enum RegId {
