@@ -62,23 +62,38 @@ impl Codegen<&koopa::ir::Program> {
         let mut func_map = HashMap::new();
         for &func in self.0.func_layout() {
             let func_data = self.0.func(func);
-            if func_data.layout().entry_bb().is_none() {
-                // Skip functions declarations.
-                continue;
+            let id = Codegen(func_data).declare(func, &mut func_map);
+            // Skip functions declarations.
+            if func_data.layout().entry_bb().is_some() {
+                let func = Codegen(func_data).generate(analyzer, func, id, &mut func_map)?;
+                program.push(func);
             }
-            let func = Codegen(func_data).generate(analyzer, func, &mut func_map)?;
-            program.push(func);
         }
         Ok(program)
     }
 }
 
 impl Codegen<&koopa::ir::FunctionData> {
+    /// Declare a function.
+    pub fn declare(
+        &self,
+        func: Function,
+        func_map: &mut HashMap<Function, FunctionId>,
+    ) -> FunctionId {
+        // Add the function to the function map.
+        let name = &self.0.name()[1..];
+        let func_id = FunctionId::next_id();
+        func_id.set_name(name.to_string());
+        func_map.insert(func, func_id);
+        func_id
+    }
+
     /// Generate code from Koopa IR.
     pub fn generate(
         self,
         analyzer: &mut Analyzer,
         func: Function,
+        id: FunctionId,
         func_map: &mut HashMap<Function, FunctionId>,
     ) -> Result<riscv::Function> {
         // Global variables.
@@ -94,14 +109,8 @@ impl Codegen<&koopa::ir::FunctionData> {
         // Frame size.
         let frame = analyzer.analyze_frame(func)?;
 
-        // Add the function to the function map.
-        let name = &self.0.name()[1..];
-        let func_id = FunctionId::next_id();
-        func_map.insert(func, func_id);
-
         // Generate code for the function.
-        let mut func = riscv::Function::new(func_id);
-        func_id.set_name(name.to_string());
+        let mut func = riscv::Function::new(id);
         let dfg = self.0.dfg();
         let bbs = self.0.layout().bbs();
 

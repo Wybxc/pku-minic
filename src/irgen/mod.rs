@@ -115,7 +115,7 @@ impl ast::CompUnit {
     ) {
         let func = program.new_func(FunctionData::new_decl(name.into(), params_ty, ret_ty));
         if symtable
-            .insert_var(name.into(), Symbol::Func(func))
+            .insert_var(name[1..].into(), Symbol::Func(func))
             .is_some()
         {
             unreachable!();

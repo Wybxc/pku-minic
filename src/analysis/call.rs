@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 
 use koopa::ir::{FunctionData, Value, ValueKind};
+#[allow(unused_imports)]
+use nolog::*;
 
 use crate::{
     analysis::{
@@ -50,7 +52,8 @@ impl FunctionCalls {
                         // they are stored in the stack.
                         let mut save = RegSet::new();
                         for &val in alive.iter() {
-                            if let Storage::Reg(reg) = &reg_alloc.map[&val] {
+                            trace!(->[0] "CALL" => "saving `{}`", crate::utils::dbg_inst(val, func.dfg()));
+                            if let Some(Storage::Reg(reg)) = reg_alloc.map.get(&val) {
                                 save.insert(*reg);
                             }
                         }

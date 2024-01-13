@@ -162,6 +162,14 @@ pub fn dbg_inst(inst: Value, dfg: &DataFlowGraph) -> String {
                 ident_block(v.false_bb(), dfg)
             )
         }
+        ValueKind::Call(v) => {
+            let args = v
+                .args()
+                .iter()
+                .map(|&arg| ident_inst(arg, dfg))
+                .collect::<Vec<_>>();
+            format!("call {:?}({})", v.callee(), args.join(", "))
+        }
         _ => todo!(),
     };
     if value.ty().is_unit() {

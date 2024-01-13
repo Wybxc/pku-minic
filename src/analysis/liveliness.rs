@@ -145,8 +145,11 @@ impl<'a> LivelinessAnalyzer<'a> {
                     }
                 }
             }
-            defined.insert(inst);
-            used.remove(&inst);
+            let value = self.func.dfg().value(inst);
+            if !value.ty().is_unit() && !matches!(value.kind(), koopa::ir::ValueKind::Alloc(_)) {
+                defined.insert(inst);
+                used.remove(&inst);
+            }
 
             self.live_out.insert(inst, ops);
 
