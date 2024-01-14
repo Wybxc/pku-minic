@@ -68,7 +68,16 @@ ConstDecl: Span<ConstDecl> = {
 }
 
 ConstDef: ConstDef = {
-  <ident: Ident> "=" <expr: ConstExpr> => ConstDef { <> },
+  <ident: Ident> "=" <init: ConstInitVal> => ConstDef { ident, index: None, init },
+  <ident: Ident> "[" <index: ConstExpr> "]" "=" <init: ConstInitVal> => ConstDef { ident, index: Some(index), init },
+};
+
+ConstInitVal: Span<ConstInitVal> = {
+  <start:@L> <expr: ConstExpr> <end:@R> => ConstInitVal::Expr(expr).into_span(start, end),
+  <start:@L> "{" <mut vals: (<ConstExpr> ",")*> <val: ConstExpr> "}" <end:@R> => {
+    vals.push(val);
+    ConstInitVal::InitList(vals.into()).into_span(start, end)
+  },
 };
 
 ConstExpr: ConstExpr = <expr: Expr> => ConstExpr { <> };
@@ -80,13 +89,19 @@ VarDecl: Span<VarDecl> = {
   },
 }
 
-VarDef: VarDef = {
-  <ident: Ident> => VarDef { ident, init: None },
-  <ident: Ident> "=" <init: InitVal> => VarDef { ident, init: Some(init) },
+VarDef: Span<VarDef> = {
+  <start:@L> <ident: Ident> <end:@R> => VarDef { ident, index: None, init: None }.into_span(start, end),
+  <start:@L> <ident: Ident> "[" <index: ConstExpr> "]" <end:@R> => VarDef { ident, index: Some(index), init: None }.into_span(start, end),
+  <start:@L> <ident: Ident> "=" <init: InitVal> <end:@R> => VarDef { ident, index: None, init: Some(init) }.into_span(start, end),
+  <start:@L> <ident: Ident> "[" <index: ConstExpr> "]" "=" <init: InitVal> <end:@R> => VarDef { ident, index: Some(index), init: Some(init) }.into_span(start, end),
 };
 
-InitVal: InitVal = {
-  <expr: Expr> => InitVal { <> },
+InitVal: Span<InitVal> = {
+  <start:@L> <expr: Expr> <end:@R> => InitVal::Expr(expr).into_span(start, end),
+  <start:@L> "{" <mut vals: (<Expr> ",")*> <val: Expr> "}" <end:@R> => {
+    vals.push(val);
+    InitVal::InitList(vals.into()).into_span(start, end)
+  },
 };
 
 Stmt: Span<Stmt> = {
@@ -129,8 +144,13 @@ Expr: Expr = <expr: LOrExpr> => <>;
 
 PrimaryExpr: Expr = {
   <num: Number> => Expr::Number(<>),
-  Ident => Expr::LVar(<>),
+  LVal => Expr::LVal(<>),
   "(" <expr: Expr> ")" => <>,
+};
+
+LVal: Span<LVal> = {
+  <start:@L> <ident: Ident> <end:@R> => LVal { ident, index: None }.into_span(start, end),
+  <start:@L> <ident: Ident> "[" <index: Expr> "]" <end:@R> => LVal { ident, index: Some(Box::new(index)) }.into_span(start, end),
 };
 
 UnaryExpr: Expr = {

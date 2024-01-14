@@ -672,7 +672,7 @@ impl ast::Expr {
                 let num = dfg.new_value().integer(num.node);
                 num
             }
-            ast::Expr::LVar(name) => {
+            ast::Expr::LVal(name) => {
                 let var = symtable
                     .get_var(&name.node)
                     .ok_or(CompileError::VariableNotFound {
@@ -752,7 +752,7 @@ impl ast::Expr {
                 }
             }
             ast::Expr::Number(num) => num.node,
-            ast::Expr::LVar(name) => {
+            ast::Expr::LVal(name) => {
                 let span = name.span().into();
                 let var = symtable
                     .get_var(&name.node)
