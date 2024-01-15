@@ -3,12 +3,8 @@
 use miette::Result;
 
 use crate::{
-    analysis::{
-        call::FunctionCalls, error::AnalysisError, localvar::LocalVars, register::RegAlloc,
-    },
-    ast::Spanned,
-    codegen::{imm::i12, riscv::FrameSize},
-    irgen::metadata::FunctionMetadata,
+    analysis::{call::FunctionCalls, localvar::LocalVars, register::RegAlloc},
+    codegen::riscv::FrameSize,
 };
 
 /// Frame size analysis.
@@ -16,7 +12,7 @@ pub struct Frame {
     /// Frame size.
     pub size: FrameSize,
     /// Total frame size.
-    pub total: i12,
+    pub total: i32,
 }
 
 impl Frame {
@@ -25,7 +21,6 @@ impl Frame {
         localvar: &LocalVars,
         reg_alloc: &RegAlloc,
         function_call: &FunctionCalls,
-        metadata: &FunctionMetadata,
     ) -> Result<Self> {
         let ra = !function_call.is_leaf;
         let local = localvar.frame_size;
@@ -35,9 +30,6 @@ impl Frame {
         let size = FrameSize::new(ra, local, spilled, saved, arg);
 
         let total = size.total();
-        let total = i12::try_from(total).map_err(|_| AnalysisError::TooManyLocals {
-            span: metadata.name.span().into(),
-        })?;
         Ok(Self { size, total })
     }
 }

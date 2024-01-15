@@ -18,6 +18,8 @@ pub struct GlobalValueData {
     pub id: GlobalId,
     /// Global value size.
     pub size: usize,
+    /// Size of base type.
+    pub base_size: usize,
     /// Initial value.
     pub init: Option<Vec<i32>>,
 }
@@ -36,6 +38,10 @@ impl GlobalValues {
                 let id = GlobalId::next_id();
                 id.set_name(name);
                 let size = data.ty().size();
+                let base_size = match data.ty().kind() {
+                    koopa::ir::TypeKind::Array(ty, _) => ty.size(),
+                    _ => size,
+                };
                 let init = if let ValueKind::ZeroInit(_) = data.kind() {
                     None
                 } else {
@@ -43,7 +49,15 @@ impl GlobalValues {
                     Self::make_init(&global_values, data, &mut init);
                     Some(init)
                 };
-                values.insert(value, GlobalValueData { id, size, init });
+                values.insert(
+                    value,
+                    GlobalValueData {
+                        id,
+                        size,
+                        base_size,
+                        init,
+                    },
+                );
             }
         }
         Self { values }

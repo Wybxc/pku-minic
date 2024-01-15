@@ -26,7 +26,11 @@ impl LocalVars {
             for &inst in node.insts().keys() {
                 let value = dfg.value(inst);
                 if let ValueKind::Alloc(_) = value.kind() {
-                    let size = value.ty().size() as i32;
+                    let ty = match value.ty().kind() {
+                        koopa::ir::TypeKind::Pointer(ty) => ty,
+                        _ => unreachable!(),
+                    };
+                    let size = ty.size() as i32;
                     let slot = FrameSlot::Local(frame_size);
                     frame_size += size;
                     map.insert(inst, slot);

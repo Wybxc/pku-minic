@@ -26,6 +26,7 @@ pub mod localvar;
 pub mod register;
 
 /// Program analyser.
+#[allow(dead_code)]
 pub struct Analyzer<'a> {
     program: &'a Program,
     metadata: &'a ProgramMetadata,
@@ -181,7 +182,6 @@ impl<'a> Analyzer<'a> {
             local_vars.as_ref(),
             reg_alloc.as_ref(),
             function_calls.as_ref(),
-            &self.metadata.functions[&func],
         )?;
         let frame = Rc::new(frame);
         self.frame_cache.insert(func, frame.clone());

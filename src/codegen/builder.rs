@@ -19,6 +19,13 @@ impl BlockBuilder {
         self.block.push(instr);
     }
 
+    /// Push a sequence of instructions to the block.
+    pub fn push_batch(&mut self, instrs: impl IntoIterator<Item = Inst>) {
+        for instr in instrs {
+            self.push(instr);
+        }
+    }
+
     /// Build the block.
     pub fn build(self) -> Block {
         self.block

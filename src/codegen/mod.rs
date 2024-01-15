@@ -34,7 +34,7 @@ use crate::{
     },
     codegen::{
         imm::i12,
-        riscv::{Block, BlockId, FrameSlot, FunctionId, Global},
+        riscv::{Block, BlockId, FrameSize, FrameSlot, FunctionId, Global},
     },
     utils,
 };
@@ -125,21 +125,24 @@ impl Codegen<&koopa::ir::FunctionData> {
 
         // Prologue and epilogue.
         let frame_size = frame.total;
-        let mut prologue = vec![];
-        let mut epilogue = vec![];
+        let mut prologue = imbl::Vector::new();
+        let mut epilogue = imbl::Vector::new();
         if frame_size > 0 {
-            prologue.push(Inst::Addi(RegId::SP, RegId::SP, -frame_size));
-            epilogue.push(Inst::Addi(RegId::SP, RegId::SP, frame_size));
+            prologue.extend([
+                Inst::Li(RegId::T0, -frame_size),
+                Inst::Add(RegId::SP, RegId::SP, RegId::T0),
+            ]);
+            epilogue.extend([
+                Inst::Li(RegId::T0, frame_size),
+                Inst::Add(RegId::SP, RegId::SP, RegId::T0),
+            ]);
         }
         if !calls.is_leaf {
             let slot = FrameSlot::RetAddr;
-            let slot = slot.offset(&frame.size);
-            let slot = i12::try_from(slot).unwrap();
-            prologue.push(Inst::Sw(RegId::RA, slot, RegId::SP));
-            epilogue.push(Inst::Lw(RegId::RA, slot, RegId::SP));
+            prologue = prologue + slot.store(&frame.size, RegId::RA);
+            epilogue = slot.load(&frame.size, RegId::RA) + epilogue;
         }
         let prologue = prologue;
-        epilogue.reverse();
         let epilogue = epilogue;
 
         // Generate code for the instruction.
@@ -179,6 +182,38 @@ impl Codegen<&koopa::ir::FunctionData> {
         }
 
         Ok(func)
+    }
+}
+
+impl FrameSlot {
+    /// Insts to load from slot to reg
+    pub fn load(self, frame_size: &FrameSize, reg: RegId) -> imbl::Vector<Inst> {
+        let slot = self.offset(frame_size);
+        if let Ok(slot) = i12::try_from(slot) {
+            [Inst::Lw(reg, slot, RegId::SP)].into()
+        } else {
+            [
+                Inst::Li(RegId::T0, slot),
+                Inst::Add(RegId::T0, RegId::SP, RegId::T0),
+                Inst::Lw(reg, i12::ZERO, RegId::T0),
+            ]
+            .into()
+        }
+    }
+
+    /// Insts to store from reg to slot
+    pub fn store(self, frame_size: &FrameSize, reg: RegId) -> imbl::Vector<Inst> {
+        let slot = self.offset(frame_size);
+        if let Ok(slot) = i12::try_from(slot) {
+            [Inst::Sw(reg, slot, RegId::SP)].into()
+        } else {
+            [
+                Inst::Li(RegId::T0, slot),
+                Inst::Add(RegId::T0, RegId::SP, RegId::T0),
+                Inst::Sw(reg, i12::ZERO, RegId::T0),
+            ]
+            .into()
+        }
     }
 }
 
@@ -271,9 +306,7 @@ impl Codegen<koopa::ir::entities::Value> {
 
                 // Write the result to stack if necessary.
                 if let Storage::Slot(slot) = storage {
-                    let slot = slot.offset(&frame.size);
-                    let slot = i12::try_from(slot).unwrap();
-                    block.push(Inst::Sw(reg, slot, RegId::SP));
+                    block.push_batch(slot.store(&frame.size, reg));
                 }
                 Ok(())
             }
@@ -287,20 +320,18 @@ impl Codegen<koopa::ir::entities::Value> {
                     // global variable
                     block.push(Inst::La(RegId::A0, global.values[&store.dest()].id));
                     val.load_value_to_reg(block, dfg, regs, frame, RegId::T0)?;
-                    block.push(Inst::Sw(RegId::T0, 0.try_into().unwrap(), RegId::A0));
+                    block.push(Inst::Sw(RegId::T0, i12::ZERO, RegId::A0));
                 } else if local_vars.map.contains_key(&store.dest()) {
                     // local variable
                     let slot = local_vars.map[&store.dest()];
-                    let slot = slot.offset(&frame.size);
-                    let slot = i12::try_from(slot).unwrap();
                     val.load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
-                    block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                    block.push_batch(slot.store(&frame.size, RegId::A0));
                 } else {
                     // pointer
                     let dest =
                         Codegen(store.dest()).load_value(block, dfg, regs, frame, RegId::A0)?;
                     val.load_value_to_reg(block, dfg, regs, frame, RegId::T0)?;
-                    block.push(Inst::Sw(RegId::T0, 0.try_into().unwrap(), dest));
+                    block.push(Inst::Sw(RegId::T0, i12::ZERO, dest));
                 }
                 Ok(())
             }
@@ -308,13 +339,15 @@ impl Codegen<koopa::ir::entities::Value> {
                 if global.values.contains_key(&load.src()) {
                     // global variable
                     block.push(Inst::La(RegId::A0, global.values[&load.src()].id));
-                    block.push(Inst::Lw(RegId::A0, 0.try_into().unwrap(), RegId::A0));
-                } else {
+                    block.push(Inst::Lw(RegId::A0, i12::ZERO, RegId::A0));
+                } else if local_vars.map.contains_key(&load.src()) {
                     // local variable
                     let src = local_vars.map[&load.src()];
-                    let src = src.offset(&frame.size);
-                    let src = i12::try_from(src).unwrap();
-                    block.push(Inst::Lw(RegId::A0, src, RegId::SP));
+                    block.push_batch(src.load(&frame.size, RegId::A0));
+                } else {
+                    // pointer
+                    let src = Codegen(load.src()).load_value(block, dfg, regs, frame, RegId::A0)?;
+                    block.push(Inst::Lw(RegId::A0, i12::ZERO, src));
                 }
                 match regs.map[&self.0] {
                     Storage::Reg(reg) => {
@@ -323,9 +356,7 @@ impl Codegen<koopa::ir::entities::Value> {
                     }
                     Storage::Slot(slot) => {
                         // Write the value to stack.
-                        let slot = slot.offset(&frame.size);
-                        let slot = i12::try_from(slot).unwrap();
-                        block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                        block.push_batch(slot.store(&frame.size, RegId::A0));
                     }
                 }
                 Ok(())
@@ -350,9 +381,7 @@ impl Codegen<koopa::ir::entities::Value> {
                 let save_regs = calls.save_regs[&self.0];
                 for (i, reg) in save_regs.iter().enumerate() {
                     let slot = FrameSlot::Saved(i as i32 * 4);
-                    let slot = slot.offset(&frame.size);
-                    let slot = i12::try_from(slot).unwrap();
-                    block.push(Inst::Sw(reg, slot, RegId::SP));
+                    block.push_batch(slot.store(&frame.size, reg))
                 }
 
                 // Set up arguments.
@@ -360,11 +389,9 @@ impl Codegen<koopa::ir::entities::Value> {
                 // Save 9th and later arguments to stack.
                 for (i, &arg) in call.args().iter().skip(8).enumerate() {
                     let slot = FrameSlot::Arg(i as i32 * 4);
-                    let slot = slot.offset(&frame.size);
-                    let slot = i12::try_from(slot).unwrap();
-                    let temp = RegId::A0; // load in reverse order, so a0 is available here
-                    Codegen(arg).load_value_to_reg(block, dfg, regs, frame, temp)?;
-                    block.push(Inst::Sw(temp, slot, RegId::SP));
+                    // load in reverse order, so a0 is available here
+                    Codegen(arg).load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
+                    block.push_batch(slot.store(&frame.size, RegId::A0));
                 }
 
                 // Save first 8 arguments to registers.
@@ -445,20 +472,14 @@ impl Codegen<koopa::ir::entities::Value> {
                     let storage = regs.map[&self.0];
                     match storage {
                         Storage::Reg(reg) => block.push(Inst::Mv(reg, RegId::A0)),
-                        Storage::Slot(slot) => {
-                            let slot = slot.offset(&frame.size);
-                            let slot = i12::try_from(slot).unwrap();
-                            block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
-                        }
+                        Storage::Slot(slot) => block.push_batch(slot.store(&frame.size, RegId::A0)),
                     };
                 }
 
                 // Restore registers.
                 for (i, reg) in save_regs.iter().enumerate() {
                     let slot = FrameSlot::Saved(i as i32 * 4);
-                    let slot = slot.offset(&frame.size);
-                    let slot = i12::try_from(slot).unwrap();
-                    block.push(Inst::Lw(reg, slot, RegId::SP));
+                    block.push_batch(slot.load(&frame.size, reg))
                 }
 
                 Ok(())
@@ -466,17 +487,21 @@ impl Codegen<koopa::ir::entities::Value> {
             ValueKind::GetElemPtr(get_elem_ptr) => {
                 let index = get_elem_ptr.index();
                 let index = Codegen(index).load_value(block, dfg, regs, frame, RegId::T0)?;
-                let ty = dfg.value(get_elem_ptr.src()).ty();
-                let size = match ty.kind() {
-                    TypeKind::Pointer(ptr) => match ptr.kind() {
-                        TypeKind::Array(base, _) => base.size(),
-                        _ => panic!("unexpected type: {:?}", ptr),
-                    },
-                    _ => panic!("unexpected type: {:?}", ty),
-                };
-                block.push(Inst::Li(RegId::T1, size as i32));
-                block.push(Inst::Mul(RegId::T0, index, RegId::T1));
                 let src = get_elem_ptr.src();
+                let base_size = if dfg.values().contains_key(&src) {
+                    let ty = dfg.value(src).ty();
+                    match ty.kind() {
+                        TypeKind::Pointer(ptr) => match ptr.kind() {
+                            TypeKind::Array(base, _) => base.size(),
+                            _ => panic!("unexpected type: {:?}", ptr),
+                        },
+                        _ => panic!("unexpected type: {:?}", ty),
+                    }
+                } else {
+                    global.values[&src].base_size
+                };
+                block.push(Inst::Li(RegId::T1, base_size as i32));
+                block.push(Inst::Mul(RegId::T0, index, RegId::T1));
                 if global.values.contains_key(&src) {
                     // global variable
                     block.push(Inst::La(RegId::A0, global.values[&src].id));
@@ -484,8 +509,8 @@ impl Codegen<koopa::ir::entities::Value> {
                     // local variable
                     let src = local_vars.map[&src];
                     let src = src.offset(&frame.size);
-                    let src = i12::try_from(src).unwrap();
-                    block.push(Inst::Addi(RegId::A0, RegId::SP, src));
+                    block.push(Inst::Li(RegId::T1, src));
+                    block.push(Inst::Add(RegId::A0, RegId::SP, RegId::T1));
                 } else {
                     // pointer
                     Codegen(src).load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
@@ -499,9 +524,10 @@ impl Codegen<koopa::ir::entities::Value> {
                     Storage::Slot(slot) => {
                         // Write the value to stack.
                         let slot = slot.offset(&frame.size);
-                        let slot = i12::try_from(slot).unwrap();
+                        block.push(Inst::Li(RegId::T1, slot));
+                        block.push(Inst::Add(RegId::T1, RegId::SP, RegId::T1));
                         block.push(Inst::Add(RegId::A0, RegId::A0, RegId::T0));
-                        block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                        block.push(Inst::Sw(RegId::A0, i12::ZERO, RegId::T1));
                     }
                 }
 
@@ -535,8 +561,13 @@ impl Codegen<koopa::ir::entities::Value> {
                 Storage::Reg(reg) => Ok(reg),
                 Storage::Slot(slot) => {
                     let slot = slot.offset(&frame.size);
-                    let slot = i12::try_from(slot).unwrap();
-                    block.push(Inst::Lw(temp, slot, RegId::SP));
+                    if let Ok(slot) = i12::try_from(slot) {
+                        block.push(Inst::Lw(temp, slot, RegId::SP));
+                    } else {
+                        block.push(Inst::Li(temp, slot));
+                        block.push(Inst::Add(temp, RegId::SP, temp));
+                        block.push(Inst::Lw(temp, i12::ZERO, temp));
+                    }
                     Ok(temp)
                 }
             }
