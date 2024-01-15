@@ -87,8 +87,8 @@ VarDef: Span<VarDef> = {
 
 InitVal: Span<InitVal> = {
   <start:@L> <expr: Expr> <end:@R> => InitVal::Expr(expr).into_span(start, end),
-  <start:@L> "{" <mut vals: (<InitVal> ",")*> <val: InitVal> "}" <end:@R> => {
-    vals.push(val);
+  <start:@L> "{" <mut vals: (<InitVal> ",")*> <val: InitVal?> "}" <end:@R> => {
+    vals.extend(val);
     InitVal::InitList(vals.into()).into_span(start, end)
   },
 };

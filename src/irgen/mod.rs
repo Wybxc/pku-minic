@@ -10,7 +10,6 @@ use crate::{
         layout::LayoutBuilder,
         metadata::{FunctionMetadata, ProgramMetadata},
     },
-    utils::VecChunksRevExact,
 };
 
 mod context;
@@ -505,103 +504,70 @@ impl Span<ast::InitVal> {
         let span = self.span().into();
         let new_ce = || CompileError::InvalidInitializer { span };
 
-        macro_rules! new_ce {
-            () => {{
-                println!("line {}", line!());
-                new_ce()
-            }};
-        }
-
         if indices.is_empty() {
             // not an array
             return match self.node {
                 ast::InitVal::Expr(_) => Ok(self),
                 ast::InitVal::InitList(inits) => {
                     if inits.len() != 1 {
-                        Err(new_ce!())?;
+                        Err(new_ce())?;
                     }
                     let init = inits.into_iter().next().unwrap();
                     match init.node {
                         ast::InitVal::Expr(_) => Ok(init),
-                        ast::InitVal::InitList(_) => Err(new_ce!())?,
+                        ast::InitVal::InitList(_) => Err(new_ce())?,
                     }
                 }
             };
         }
 
-        let mut inits = match self.node {
-            ast::InitVal::Expr(_) => Err(new_ce!())?,
+        let inits = match self.node {
+            ast::InitVal::Expr(_) => Err(new_ce())?,
             ast::InitVal::InitList(inits) => inits,
         };
 
-        // split the initializer list at the first init list
-        let first_init_list_pos = inits
-            .iter()
-            .position(|init| matches!(init.node, ast::InitVal::InitList(_)))
-            .unwrap_or(inits.len());
-        let mut init_lists = inits.drain(first_init_list_pos..).collect::<Vec<_>>();
+        let mut digits = vec![vec![]; indices.len()];
 
-        // leading values of the initializer list
-        let mut innermost = inits;
-
-        let mut indices = indices;
-        loop {
-            let mut size = innermost.len() as i32; // [T; size]
-            let sub_indices_pos = if size == 0 {
-                1
-            } else {
-                // fold the innermost array
-                let mut sub_indices_pos = indices.len();
-                for (i, index) in indices.iter().copied().enumerate().rev() {
-                    if size < index {
-                        break;
-                    }
-                    if size % index != 0 {
-                        Err(new_ce!())?;
-                    }
-                    size /= index; // [T; size] -> [[T; index]; size / index]
-                    innermost = VecChunksRevExact::new(innermost, index as usize)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev()
-                        .map(ast::InitVal::InitList)
-                        .map(|init| init.into_span(0, 0))
-                        .collect();
-                    sub_indices_pos = i;
+        for init in inits {
+            let (base, init) = match init.node {
+                ast::InitVal::Expr(_) => (indices.len() - 1, init),
+                ast::InitVal::InitList(_) => {
+                    let base = digits.iter().rposition(|d| !d.is_empty()).unwrap_or(0);
+                    let sub_indices = &indices[base + 1..];
+                    let init = init.canonicalize(sub_indices)?;
+                    (base, init)
                 }
-                sub_indices_pos
             };
-            if sub_indices_pos == 0 {
-                // the initializer list is fully processed
-                if innermost.len() > 1 {
-                    Err(new_ce!())?;
-                }
-                let init = innermost.into_iter().next().unwrap();
-                return Ok(init);
-            }
-
-            // the initializer list is partially processed
-            let d = indices[sub_indices_pos - 1];
-            let (super_indices, sub_indices) = indices.split_at(sub_indices_pos);
-            indices = super_indices;
-
-            // finish processing the initializer list
-            for init in init_lists.drain(..) {
-                let init = init.canonicalize(sub_indices)?;
-                innermost.push(init);
-            }
-
-            // pad the initializer list
-            let pad_to = {
-                let n = innermost.len() as i32;
-                if n % d == 0 {
-                    n
+            let mut carry = Some(init);
+            for i in (0..=base).rev() {
+                if let Some(carry) = carry.take() {
+                    digits[i].push(carry);
                 } else {
-                    n + d - n % d
+                    break;
                 }
-            };
-            innermost.resize(pad_to as usize, Self::zeroed(sub_indices));
+                if digits[i].len() >= indices[i] as usize {
+                    carry = Some(
+                        ast::InitVal::InitList(std::mem::take(&mut digits[i])).into_span(0, 0),
+                    );
+                }
+            }
+            if let Some(carry) = carry {
+                return Ok(carry);
+            }
         }
+
+        // pad zeros
+        let mut carry = None;
+        for i in (0..indices.len()).rev() {
+            debug_assert!(digits[i].len() < indices[i] as usize);
+            if let Some(carry) = carry.take() {
+                digits[i].push(carry);
+            }
+            digits[i].resize(indices[i] as usize, Self::zeroed(&indices[i + 1..]));
+            carry = Some(ast::InitVal::InitList(std::mem::take(&mut digits[i])).into_span(0, 0));
+        }
+        let carry = carry.unwrap();
+        Ok(carry)
     }
 
     /// Return a zeroed initializer list.

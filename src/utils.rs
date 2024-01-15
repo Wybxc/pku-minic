@@ -8,32 +8,6 @@ use std::{
 
 use koopa::ir::{dfg::DataFlowGraph, entities::ValueData, BasicBlock, Value, ValueKind};
 
-pub struct VecChunksRevExact<T> {
-    vec: Vec<T>,
-    chunk_size: usize,
-}
-
-impl<T> VecChunksRevExact<T> {
-    pub fn new(vec: Vec<T>, chunk_size: usize) -> Self {
-        Self { vec, chunk_size }
-    }
-}
-
-impl<T> Iterator for VecChunksRevExact<T> {
-    type Item = Vec<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let len = self.vec.len();
-        if len < self.chunk_size {
-            None
-        } else {
-            let start = len - self.chunk_size;
-            let chunk = self.vec.drain(start..).collect();
-            Some(chunk)
-        }
-    }
-}
-
 /// Check if a value is a constant.
 ///
 /// Constants are nameless values that need no computation.
