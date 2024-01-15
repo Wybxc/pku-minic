@@ -129,4 +129,12 @@ pub enum CompileError {
         span: SourceSpan,
         size: i32,
     },
+
+    /// invalid initializer
+    #[error("invalid initializer")]
+    #[diagnostic(code(minic::invalid_initializer))]
+    InvalidInitializer {
+        #[label("invalid initializer")]
+        span: SourceSpan,
+    },
 }

@@ -4,12 +4,13 @@ use koopa::ir::{builder_traits::*, dfg::DataFlowGraph, *};
 use miette::Result;
 
 use crate::{
-    ast::{self, Span, Spanned},
+    ast::{self, ConstExpr, NonSpanned, Span, Spanned},
     irgen::{
         context::Context,
         layout::LayoutBuilder,
         metadata::{FunctionMetadata, ProgramMetadata},
     },
+    utils::VecChunksRevExact,
 };
 
 mod context;
@@ -134,7 +135,7 @@ impl ast::FuncDef {
         let metadata = FunctionMetadata::new(self.ident.clone());
         let kp_name = format!("@{}", self.ident.node);
         let params = self.params.iter().map(|p| p.build_ir()).collect();
-        let ret_type = self.func_type.node.build_ir();
+        let ret_type = self.func_type.node.build_primitive();
         let func = program.new_func(FunctionData::with_param_names(kp_name, params, ret_type));
         prog_metadata.functions.insert(func, metadata);
 
@@ -187,7 +188,7 @@ impl ast::FuncParam {
     pub fn build_ir(&self) -> (Option<String>, Type) {
         (
             Some(format!("@{}", self.ident.node)),
-            self.ty.node.build_ir(),
+            self.ty.node.build_primitive(),
         )
     }
 }
@@ -251,11 +252,31 @@ impl ast::Decl {
 
 impl ast::BType {
     /// Build IR from AST.
-    pub fn build_ir(&self) -> Type {
+    pub fn build_primitive(&self) -> Type {
         match self {
             ast::BType::Int => Type::get_i32(),
             ast::BType::Void => Type::get_unit(),
         }
+    }
+
+    /// Build IR from AST for array types.
+    pub fn build_ir(
+        &self,
+        expr_indices: Vec<ConstExpr>,
+        symtable: &mut SymbolTable,
+    ) -> Result<(Type, Vec<i32>)> {
+        let mut ty = self.build_primitive();
+        let mut indices = vec![];
+        for expr in expr_indices {
+            let span = expr.span().into();
+            let index = expr.const_eval(symtable)?;
+            if index < 0 {
+                Err(CompileError::InvalidArraySize { span, size: index })?;
+            }
+            ty = Type::get_array(ty, index as usize);
+            indices.push(index);
+        }
+        Ok((ty, indices))
     }
 
     /// Default value of the type.
@@ -294,26 +315,21 @@ impl ast::ConstDef {
         layout: &mut LayoutBuilder,
     ) -> Result<()> {
         let span = self.ident.span().into();
-        if let Some(index) = self.indices {
-            // Constant array.
-            let values = self.init.init_array_const(index, symtable, ty)?;
+        if self.indices.is_empty() {
+            // Constant variable.
+            self.build_const(symtable)
+        } else {
+            // Get the type of the array.
+            let (ty, indices) = ty.build_ir(self.indices, symtable)?;
 
             // Allocate a new array.
-            let dfg = layout.dfg_mut();
-            let ty = Type::get_array(ty.build_ir(), values.len());
-            let array = dfg.new_value().alloc(ty.clone());
-            dfg.set_value_name(array, Some(format!("@{}", self.ident.node)));
+            let array = layout.dfg_mut().new_value().alloc(ty.clone());
             layout.push_inst(array);
 
             // Initialize the array.
-            for (index, value) in values.into_iter().enumerate() {
-                let dfg = layout.dfg_mut();
-                let index = dfg.new_value().integer(index as i32);
-                let ptr = dfg.new_value().get_elem_ptr(array, index);
-                let value = dfg.new_value().integer(value);
-                let store = dfg.new_value().store(value, ptr);
-                layout.push_insts([ptr, store]);
-            }
+            self.init
+                .canonicalize(&indices)?
+                .build_ir_in(array, symtable, layout, true)?;
 
             // Insert the array into the symbol table.
             if symtable
@@ -324,9 +340,6 @@ impl ast::ConstDef {
             }
 
             Ok(())
-        } else {
-            // Constant variable.
-            self.build_const(symtable, ty)
         }
     }
 
@@ -338,15 +351,18 @@ impl ast::ConstDef {
         ty: &ast::BType,
     ) -> Result<()> {
         let span = self.ident.span().into();
-        if let Some(index) = self.indices {
-            // Constant array.
-            let values = self.init.init_array_const(index, symtable, ty)?;
-            let ty = Type::get_array(ty.build_ir(), values.len());
-            let values = values
-                .into_iter()
-                .map(|v| program.new_value().integer(v))
-                .collect();
-            let init = program.new_value().aggregate(values);
+        if self.indices.is_empty() {
+            // Constant variable.
+            self.build_const(symtable)
+        } else {
+            // Get the type of the array.
+            let (ty, indices) = ty.build_ir(self.indices, symtable)?;
+
+            // Initialize the array.
+            let init = self
+                .init
+                .canonicalize(&indices)?
+                .build_ir_global(symtable, program)?;
 
             // Allocate a new array.
             let array = program.new_value().global_alloc(init);
@@ -361,16 +377,13 @@ impl ast::ConstDef {
             }
 
             Ok(())
-        } else {
-            // Constant variable.
-            self.build_const(symtable, ty)
         }
     }
 
     /// Build IR from AST for constant variables (not arrays).
-    fn build_const(self, symtable: &mut SymbolTable, ty: &ast::BType) -> Result<()> {
+    fn build_const(self, symtable: &mut SymbolTable) -> Result<()> {
         let span = self.ident.span().into();
-        let expr = self.init.try_into_expr(ty)?.const_eval(symtable)?;
+        let expr = self.init.canonicalize(&[])?.const_eval(symtable)?;
         if symtable
             .insert_var(self.ident.node, Symbol::Const(expr))
             .is_some()
@@ -420,69 +433,30 @@ impl ast::VarDef {
             Err(CompileError::VariableTypeVoid { span })?;
         }
 
-        if let Some(index) = self.index {
-            // Array.
-            let index_span = index.span().into();
-            let index = index.const_eval(symtable)?;
-            if index < 0 {
-                Err(CompileError::InvalidArraySize {
-                    span: index_span,
-                    size: index,
-                })?;
-            }
+        // Get the type of the array or variable.
+        let (ty, indices) = ty.build_ir(self.indices, symtable)?;
 
-            // Allocate a new array.
-            let dfg = layout.dfg_mut();
-            let ty_kp = Type::get_array(ty.build_ir(), index as usize);
-            let array = dfg.new_value().alloc(ty_kp.clone());
-            dfg.set_value_name(array, Some(format!("@{}", self.ident.node)));
-            layout.push_inst(array);
+        // Allocate a new variable.
+        let dfg = layout.dfg_mut();
+        let var = dfg.new_value().alloc(ty.clone());
+        dfg.set_value_name(var, Some(format!("@{}", self.ident.node)));
+        layout.push_inst(var);
 
-            // Initialize the array.
-            if let Some(init) = self.init {
-                let values = init.init_array(index, symtable, ty, layout)?;
-                for (index, value) in values.into_iter().enumerate() {
-                    let dfg = layout.dfg_mut();
-                    let index = dfg.new_value().integer(index as i32);
-                    let ptr = dfg.new_value().get_elem_ptr(array, index);
-                    let store = dfg.new_value().store(value, ptr);
-                    layout.push_insts([ptr, store]);
-                }
-            }
-
-            // Insert the array into the symbol table.
-            if symtable
-                .insert_var(self.ident.node, Symbol::Var(array, ty_kp, false))
-                .is_some()
-            {
-                Err(CompileError::VariableDefinedTwice { span })?;
-            }
-
-            Ok(())
-        } else {
-            // Allocate a new variable.
-            let dfg = layout.dfg_mut();
-            let ty_kp = ty.build_ir();
-            let var = dfg.new_value().alloc(ty_kp.clone());
-            dfg.set_value_name(var, Some(format!("@{}", self.ident.node)));
-            layout.push_inst(var);
-
-            // Initialize the variable.
-            if let Some(init) = self.init {
-                let init = init.try_into_expr(ty)?.build_ir_in(symtable, layout)?;
-                let store = layout.dfg_mut().new_value().store(init, var);
-                layout.push_inst(store);
-            }
-
-            // Insert the variable into the symbol table.
-            if symtable
-                .insert_var(self.ident.node, Symbol::Var(var, ty_kp, false))
-                .is_some()
-            {
-                Err(CompileError::VariableDefinedTwice { span })?;
-            }
-            Ok(())
+        // Initialize the variable.
+        if let Some(init) = self.init {
+            init.canonicalize(&indices)?
+                .build_ir_in(var, symtable, layout, false)?;
         }
+
+        // Insert the array into the symbol table.
+        if symtable
+            .insert_var(self.ident.node, Symbol::Var(var, ty, false))
+            .is_some()
+        {
+            Err(CompileError::VariableDefinedTwice { span })?;
+        }
+
+        Ok(())
     }
 
     /// Build IR from AST for global variables.
@@ -498,23 +472,15 @@ impl ast::VarDef {
             Err(CompileError::VariableTypeVoid { span })?;
         }
 
+        // Get the type of the array or variable.
+        let (ty, indices) = ty.build_ir(self.indices, symtable)?;
+
         // Initialize the variable.
         let init = if let Some(init) = self.init {
-            if let Some(index) = self.index {
-                // Array.
-                let values = init.init_array_const(index, symtable, ty)?;
-                let values = values
-                    .into_iter()
-                    .map(|v| program.new_value().integer(v))
-                    .collect();
-                program.new_value().aggregate(values)
-            } else {
-                // Variable.
-                let value = init.try_into_expr(ty)?.const_eval(symtable)?;
-                program.new_value().integer(value)
-            }
+            init.canonicalize(&indices)?
+                .build_ir_global(symtable, program)?
         } else {
-            program.new_value().zero_init(ty.build_ir())
+            program.new_value().zero_init(ty.clone())
         };
 
         // Allocate a new variable.
@@ -523,7 +489,7 @@ impl ast::VarDef {
 
         // Insert the variable into the symbol table.
         if symtable
-            .insert_var(self.ident.node, Symbol::Var(var, ty.build_ir(), false))
+            .insert_var(self.ident.node, Symbol::Var(var, ty, false))
             .is_some()
         {
             Err(CompileError::VariableDefinedTwice { span })?;
@@ -534,106 +500,182 @@ impl ast::VarDef {
 }
 
 impl Span<ast::InitVal> {
-    /// Try to convert the initializer into an expression.
-    pub fn try_into_expr(self, ty: &ast::BType) -> Result<ast::Expr> {
+    /// Canonicalize the initializer.
+    pub fn canonicalize(self, indices: &[i32]) -> Result<Span<ast::InitVal>> {
         let span = self.span().into();
-        match self.node {
-            ast::InitVal::Expr(expr) => Ok(expr),
-            ast::InitVal::InitList(exprs) => {
-                if exprs.len() != 1 {
-                    Err(CompileError::TypeError {
-                        span,
-                        expected: format!("{}", ty),
-                        found: format!("{}[]", ty),
-                    })?;
+        let new_ce = || CompileError::InvalidInitializer { span };
+
+        macro_rules! new_ce {
+            () => {{
+                println!("line {}", line!());
+                new_ce()
+            }};
+        }
+
+        if indices.is_empty() {
+            // not an array
+            return match self.node {
+                ast::InitVal::Expr(_) => Ok(self),
+                ast::InitVal::InitList(inits) => {
+                    if inits.len() != 1 {
+                        Err(new_ce!())?;
+                    }
+                    let init = inits.into_iter().next().unwrap();
+                    match init.node {
+                        ast::InitVal::Expr(_) => Ok(init),
+                        ast::InitVal::InitList(_) => Err(new_ce!())?,
+                    }
                 }
-                Ok(exprs.into_iter().next().unwrap())
+            };
+        }
+
+        let mut inits = match self.node {
+            ast::InitVal::Expr(_) => Err(new_ce!())?,
+            ast::InitVal::InitList(inits) => inits,
+        };
+
+        // split the initializer list at the first init list
+        let first_init_list_pos = inits
+            .iter()
+            .position(|init| matches!(init.node, ast::InitVal::InitList(_)))
+            .unwrap_or(inits.len());
+        let mut init_lists = inits.drain(first_init_list_pos..).collect::<Vec<_>>();
+
+        // leading values of the initializer list
+        let mut innermost = inits;
+
+        let mut indices = indices;
+        loop {
+            let mut size = innermost.len() as i32; // [T; size]
+            let sub_indices_pos = if size == 0 {
+                1
+            } else {
+                // fold the innermost array
+                let mut sub_indices_pos = indices.len();
+                for (i, index) in indices.iter().copied().enumerate().rev() {
+                    if size < index {
+                        break;
+                    }
+                    if size % index != 0 {
+                        Err(new_ce!())?;
+                    }
+                    size /= index; // [T; size] -> [[T; index]; size / index]
+                    innermost = VecChunksRevExact::new(innermost, index as usize)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .map(ast::InitVal::InitList)
+                        .map(|init| init.into_span(0, 0))
+                        .collect();
+                    sub_indices_pos = i;
+                }
+                sub_indices_pos
+            };
+            if sub_indices_pos == 0 {
+                // the initializer list is fully processed
+                if innermost.len() > 1 {
+                    Err(new_ce!())?;
+                }
+                let init = innermost.into_iter().next().unwrap();
+                return Ok(init);
+            }
+
+            // the initializer list is partially processed
+            let d = indices[sub_indices_pos - 1];
+            let (super_indices, sub_indices) = indices.split_at(sub_indices_pos);
+            indices = super_indices;
+
+            // finish processing the initializer list
+            for init in init_lists.drain(..) {
+                let init = init.canonicalize(sub_indices)?;
+                innermost.push(init);
+            }
+
+            // pad the initializer list
+            let pad_to = {
+                let n = innermost.len() as i32;
+                if n % d == 0 {
+                    n
+                } else {
+                    n + d - n % d
+                }
+            };
+            innermost.resize(pad_to as usize, Self::zeroed(sub_indices));
+        }
+    }
+
+    /// Return a zeroed initializer list.
+    fn zeroed(indices: &[i32]) -> Span<ast::InitVal> {
+        match indices {
+            [] => ast::InitVal::Expr(ast::Expr::Number(0.into_span(0, 0))).into_span(0, 0),
+            [index, indices @ ..] => ast::InitVal::InitList(
+                (0..*index)
+                    .map(|_| Self::zeroed(indices))
+                    .collect::<Vec<_>>(),
+            )
+            .into_span(0, 0),
+        }
+    }
+
+    /// Build IR from AST in an existing IR node.
+    pub fn build_ir_in(
+        self,
+        ptr: Value,
+        symtable: &mut SymbolTable,
+        layout: &mut LayoutBuilder,
+        is_const: bool,
+    ) -> Result<()> {
+        match self.node {
+            ast::InitVal::Expr(expr) => {
+                let expr = if is_const {
+                    let val = expr.const_eval(symtable)?;
+                    layout.dfg_mut().new_value().integer(val)
+                } else {
+                    expr.build_ir_in(symtable, layout)?
+                };
+                let store = layout.dfg_mut().new_value().store(expr, ptr);
+                layout.push_inst(store);
+            }
+            ast::InitVal::InitList(inits) => {
+                for (i, init) in inits.into_iter().enumerate() {
+                    let dfg = layout.dfg_mut();
+                    let index = dfg.new_value().integer(i as i32);
+                    let ptr = dfg.new_value().get_elem_ptr(ptr, index);
+                    layout.push_inst(ptr);
+                    init.build_ir_in(ptr, symtable, layout, is_const)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Build IR from AST for global variables.
+    pub fn build_ir_global(
+        self,
+        symtable: &mut SymbolTable,
+        program: &mut Program,
+    ) -> Result<Value> {
+        match self.node {
+            ast::InitVal::Expr(expr) => {
+                let val = expr.const_eval(symtable)?;
+                Ok(program.new_value().integer(val))
+            }
+            ast::InitVal::InitList(inits) => {
+                let values = inits
+                    .into_iter()
+                    .map(|init| init.build_ir_global(symtable, program))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(program.new_value().aggregate(values))
             }
         }
     }
 
-    /// Try to convert the initializer into a list of expressions.
-    pub fn try_into_exprs(self, ty: &ast::BType) -> Result<Vec<ast::Expr>> {
-        let span = self.span().into();
+    /// Const evaluation.
+    pub fn const_eval(self, symtable: &SymbolTable) -> Result<i32> {
         match self.node {
-            ast::InitVal::Expr(_) => Err(CompileError::TypeError {
-                span,
-                expected: format!("{}[]", ty),
-                found: format!("{}", ty),
-            })?,
-            ast::InitVal::InitList(exprs) => Ok(exprs),
+            ast::InitVal::Expr(expr) => expr.const_eval(symtable),
+            ast::InitVal::InitList(_) => unreachable!(),
         }
-    }
-
-    /// Initialize an array.
-    pub fn init_array(
-        self,
-        index: i32,
-        symtable: &mut SymbolTable,
-        ty: &ast::BType,
-        layout: &mut LayoutBuilder,
-    ) -> Result<Vec<Value>> {
-        let span = self.span().into();
-
-        // Check the type.
-        let exprs = self.try_into_exprs(ty)?;
-        if exprs.len() > index as usize {
-            Err(CompileError::TypeError {
-                span,
-                expected: format!("{}[{}]", ty, index),
-                found: format!("{}[{}]", ty, exprs.len()),
-            })?;
-        }
-
-        // Compute the values.
-        let mut values = exprs
-            .into_iter()
-            .map(|expr| expr.build_ir_in(symtable, layout))
-            .collect::<Result<Vec<_>>>()?;
-        if values.len() < index as usize {
-            values.resize(index as usize, layout.dfg_mut().new_value().integer(0));
-        }
-
-        Ok(values)
-    }
-
-    /// Initialize an array with constant values.
-    pub fn init_array_const(
-        self,
-        index: ast::ConstExpr,
-        symtable: &mut SymbolTable,
-        ty: &ast::BType,
-    ) -> Result<Vec<i32>> {
-        let span = self.span().into();
-        let index_span = index.span().into();
-        let index = index.const_eval(symtable)?;
-        if index < 0 {
-            Err(CompileError::InvalidArraySize {
-                span: index_span,
-                size: index,
-            })?;
-        }
-
-        // Check the type.
-        let exprs = self.try_into_exprs(ty)?;
-        if exprs.len() > index as usize {
-            Err(CompileError::TypeError {
-                span,
-                expected: format!("{}[{}]", ty, index),
-                found: format!("{}[{}]", ty, exprs.len()),
-            })?;
-        }
-
-        // Compute the values.
-        let mut values = exprs
-            .into_iter()
-            .map(|expr| expr.const_eval(symtable))
-            .collect::<Result<Vec<_>>>()?;
-        if values.len() < index as usize {
-            values.resize(index as usize, 0);
-        }
-
-        Ok(values)
     }
 }
 
@@ -1009,20 +1051,19 @@ impl Span<ast::LVal> {
         let var = symtable
             .get_var(&self.node.ident.node)
             .ok_or(CompileError::VariableNotFound { span })?;
-        let var = match var {
+        let mut var = match var {
             Symbol::Const(_) | Symbol::Var(_, _, true) => {
                 Err(CompileError::AssignToConst { span })?
             }
             Symbol::Var(var, _, false) => *var,
             Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
         };
-        if let Some(index) = self.node.indices {
+        for index in self.node.indices {
             let index = index.build_ir_in(symtable, layout)?;
             let ptr = layout.dfg_mut().new_value().get_elem_ptr(var, index);
-            Ok(layout.push_inst(ptr))
-        } else {
-            Ok(var)
+            var = layout.push_inst(ptr);
         }
+        Ok(var)
     }
 
     /// Build IR for a right value.
@@ -1035,7 +1076,7 @@ impl Span<ast::LVal> {
             Symbol::Const(num) => {
                 let dfg = layout.dfg_mut();
                 let num = dfg.new_value().integer(*num);
-                if self.node.indices.is_some() {
+                if !self.node.indices.is_empty() {
                     Err(CompileError::TypeError {
                         span: self.span().into(),
                         expected: "int".to_string(),
@@ -1044,14 +1085,12 @@ impl Span<ast::LVal> {
                 }
                 Ok(num)
             }
-            Symbol::Var(var, _, _) => {
-                let var = if let Some(index) = self.node.indices {
+            Symbol::Var(mut var, _, _) => {
+                for index in self.node.indices {
                     let index = index.build_ir_in(symtable, layout)?;
-                    let ptr = layout.dfg_mut().new_value().get_elem_ptr(*var, index);
-                    layout.push_inst(ptr)
-                } else {
-                    *var
-                };
+                    let ptr = layout.dfg_mut().new_value().get_elem_ptr(var, index);
+                    var = layout.push_inst(ptr);
+                }
                 let dfg = layout.dfg_mut();
                 let load = dfg.new_value().load(var);
                 Ok(layout.push_inst(load))
