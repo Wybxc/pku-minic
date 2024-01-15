@@ -96,7 +96,7 @@ impl Display for ConstDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // write!(f, "{} = {}", self.ident, self.expr)
         write!(f, "{}", self.ident)?;
-        if let Some(index) = &self.index {
+        for index in &self.indices {
             write!(f, "[{}]", index)?;
         }
         write!(f, " = {}", self.init)
@@ -112,6 +112,9 @@ impl Display for ConstExpr {
 impl Display for VarDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.ident)?;
+        for index in &self.indices {
+            write!(f, "[{}]", index)?;
+        }
         if let Some(init) = &self.init {
             write!(f, " = {}", init)?;
         }
@@ -235,7 +238,7 @@ impl Display for Expr {
 impl Display for LVal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.ident)?;
-        if let Some(index) = &self.index {
+        for index in &self.indices {
             write!(f, "[{}]", index)?;
         }
         Ok(())

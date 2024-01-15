@@ -294,7 +294,7 @@ impl ast::ConstDef {
         layout: &mut LayoutBuilder,
     ) -> Result<()> {
         let span = self.ident.span().into();
-        if let Some(index) = self.index {
+        if let Some(index) = self.indices {
             // Constant array.
             let values = self.init.init_array_const(index, symtable, ty)?;
 
@@ -338,7 +338,7 @@ impl ast::ConstDef {
         ty: &ast::BType,
     ) -> Result<()> {
         let span = self.ident.span().into();
-        if let Some(index) = self.index {
+        if let Some(index) = self.indices {
             // Constant array.
             let values = self.init.init_array_const(index, symtable, ty)?;
             let ty = Type::get_array(ty.build_ir(), values.len());
@@ -1016,7 +1016,7 @@ impl Span<ast::LVal> {
             Symbol::Var(var, _, false) => *var,
             Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
         };
-        if let Some(index) = self.node.index {
+        if let Some(index) = self.node.indices {
             let index = index.build_ir_in(symtable, layout)?;
             let ptr = layout.dfg_mut().new_value().get_elem_ptr(var, index);
             Ok(layout.push_inst(ptr))
@@ -1035,7 +1035,7 @@ impl Span<ast::LVal> {
             Symbol::Const(num) => {
                 let dfg = layout.dfg_mut();
                 let num = dfg.new_value().integer(*num);
-                if self.node.index.is_some() {
+                if self.node.indices.is_some() {
                     Err(CompileError::TypeError {
                         span: self.span().into(),
                         expected: "int".to_string(),
@@ -1045,7 +1045,7 @@ impl Span<ast::LVal> {
                 Ok(num)
             }
             Symbol::Var(var, _, _) => {
-                let var = if let Some(index) = self.node.index {
+                let var = if let Some(index) = self.node.indices {
                     let index = index.build_ir_in(symtable, layout)?;
                     let ptr = layout.dfg_mut().new_value().get_elem_ptr(*var, index);
                     layout.push_inst(ptr)

@@ -184,7 +184,7 @@ impl NonSpanned for ConstDecl {}
 #[derive(Debug, Clone)]
 pub struct ConstDef {
     pub ident: Span<String>,
-    pub index: Option<ConstExpr>,
+    pub indices: Vec<ConstExpr>,
     pub init: Span<InitVal>,
 }
 
@@ -220,7 +220,7 @@ impl NonSpanned for VarDecl {}
 #[derive(Debug, Clone)]
 pub struct VarDef {
     pub ident: Span<String>,
-    pub index: Option<ConstExpr>,
+    pub indices: Vec<ConstExpr>,
     pub init: Option<Span<InitVal>>,
 }
 
@@ -235,7 +235,7 @@ impl NonSpanned for VarDef {}
 #[derive(Debug, Clone)]
 pub enum InitVal {
     Expr(Expr),
-    InitList(Vec<Expr>),
+    InitList(Vec<Span<InitVal>>),
 }
 
 impl NonSpanned for InitVal {}
@@ -380,7 +380,7 @@ impl Spanned for Expr {
 #[derive(Debug, Clone)]
 pub struct LVal {
     pub ident: Span<String>,
-    pub index: Option<Box<Expr>>,
+    pub indices: Vec<Expr>,
 }
 
 impl NonSpanned for LVal {}
