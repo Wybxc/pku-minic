@@ -24,8 +24,9 @@ impl LocalVars {
         let bbs = func.layout().bbs();
         for (_, node) in bbs.iter() {
             for &inst in node.insts().keys() {
-                if let ValueKind::Alloc(_) = dfg.value(inst).kind() {
-                    let size = 4; // i32
+                let value = dfg.value(inst);
+                if let ValueKind::Alloc(_) = value.kind() {
+                    let size = value.ty().size() as i32;
                     let slot = FrameSlot::Local(frame_size);
                     frame_size += size;
                     map.insert(inst, slot);

@@ -189,6 +189,10 @@ fn operand_vars(value: Value, dfg: &DataFlowGraph) -> Vec<Value> {
             let args = call.args().iter().copied().filter(is_var);
             args.collect()
         }
+        ValueKind::GetElemPtr(gep) => {
+            let base = Some(gep.index()).filter(is_var);
+            base.iter().copied().collect()
+        }
         _ => vec![],
     }
 }

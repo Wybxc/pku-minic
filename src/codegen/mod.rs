@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use koopa::ir::{dfg::DataFlowGraph, BasicBlock, BinaryOp, Function, ValueKind};
+use koopa::ir::{dfg::DataFlowGraph, BasicBlock, BinaryOp, Function, TypeKind, ValueKind};
 use miette::Result;
 
 mod builder;
@@ -288,13 +288,19 @@ impl Codegen<koopa::ir::entities::Value> {
                     block.push(Inst::La(RegId::A0, global.values[&store.dest()].id));
                     val.load_value_to_reg(block, dfg, regs, frame, RegId::T0)?;
                     block.push(Inst::Sw(RegId::T0, 0.try_into().unwrap(), RegId::A0));
-                } else {
+                } else if local_vars.map.contains_key(&store.dest()) {
                     // local variable
                     let slot = local_vars.map[&store.dest()];
                     let slot = slot.offset(&frame.size);
                     let slot = i12::try_from(slot).unwrap();
                     val.load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
                     block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                } else {
+                    // pointer
+                    let dest =
+                        Codegen(store.dest()).load_value(block, dfg, regs, frame, RegId::A0)?;
+                    val.load_value_to_reg(block, dfg, regs, frame, RegId::T0)?;
+                    block.push(Inst::Sw(RegId::T0, 0.try_into().unwrap(), dest));
                 }
                 Ok(())
             }
@@ -453,6 +459,47 @@ impl Codegen<koopa::ir::entities::Value> {
                     let slot = slot.offset(&frame.size);
                     let slot = i12::try_from(slot).unwrap();
                     block.push(Inst::Lw(reg, slot, RegId::SP));
+                }
+
+                Ok(())
+            }
+            ValueKind::GetElemPtr(get_elem_ptr) => {
+                let index = get_elem_ptr.index();
+                let index = Codegen(index).load_value(block, dfg, regs, frame, RegId::T0)?;
+                let ty = dfg.value(get_elem_ptr.src()).ty();
+                let size = match ty.kind() {
+                    TypeKind::Pointer(ptr) => match ptr.kind() {
+                        TypeKind::Array(base, _) => base.size(),
+                        _ => panic!("unexpected type: {:?}", ptr),
+                    },
+                    _ => panic!("unexpected type: {:?}", ty),
+                };
+                block.push(Inst::Li(RegId::T1, size as i32));
+                block.push(Inst::Mul(RegId::T0, index, RegId::T1));
+                let src = get_elem_ptr.src();
+                if global.values.contains_key(&src) {
+                    // global variable
+                    block.push(Inst::La(RegId::A0, global.values[&src].id));
+                } else {
+                    // local variable
+                    let src = local_vars.map[&src];
+                    let src = src.offset(&frame.size);
+                    let src = i12::try_from(src).unwrap();
+                    block.push(Inst::Addi(RegId::A0, RegId::SP, src));
+                }
+
+                match regs.map[&self.0] {
+                    Storage::Reg(reg) => {
+                        // Load the value to the register.
+                        block.push(Inst::Add(reg, RegId::A0, RegId::T0));
+                    }
+                    Storage::Slot(slot) => {
+                        // Write the value to stack.
+                        let slot = slot.offset(&frame.size);
+                        let slot = i12::try_from(slot).unwrap();
+                        block.push(Inst::Add(RegId::A0, RegId::A0, RegId::T0));
+                        block.push(Inst::Sw(RegId::A0, slot, RegId::SP));
+                    }
                 }
 
                 Ok(())
