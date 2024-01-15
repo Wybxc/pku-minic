@@ -480,12 +480,15 @@ impl Codegen<koopa::ir::entities::Value> {
                 if global.values.contains_key(&src) {
                     // global variable
                     block.push(Inst::La(RegId::A0, global.values[&src].id));
-                } else {
+                } else if local_vars.map.contains_key(&src) {
                     // local variable
                     let src = local_vars.map[&src];
                     let src = src.offset(&frame.size);
                     let src = i12::try_from(src).unwrap();
                     block.push(Inst::Addi(RegId::A0, RegId::SP, src));
+                } else {
+                    // pointer
+                    Codegen(src).load_value_to_reg(block, dfg, regs, frame, RegId::A0)?;
                 }
 
                 match regs.map[&self.0] {
