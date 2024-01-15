@@ -68,16 +68,8 @@ ConstDecl: Span<ConstDecl> = {
 }
 
 ConstDef: ConstDef = {
-  <ident: Ident> "=" <init: ConstInitVal> => ConstDef { ident, index: None, init },
-  <ident: Ident> "[" <index: ConstExpr> "]" "=" <init: ConstInitVal> => ConstDef { ident, index: Some(index), init },
-};
-
-ConstInitVal: Span<ConstInitVal> = {
-  <start:@L> <expr: ConstExpr> <end:@R> => ConstInitVal::Expr(expr).into_span(start, end),
-  <start:@L> "{" <mut vals: (<ConstExpr> ",")*> <val: ConstExpr> "}" <end:@R> => {
-    vals.push(val);
-    ConstInitVal::InitList(vals.into()).into_span(start, end)
-  },
+  <ident: Ident> "=" <init: InitVal> => ConstDef { ident, index: None, init },
+  <ident: Ident> "[" <index: ConstExpr> "]" "=" <init: InitVal> => ConstDef { ident, index: Some(index), init },
 };
 
 ConstExpr: ConstExpr = <expr: Expr> => ConstExpr { <> };
@@ -110,7 +102,7 @@ Stmt: Span<Stmt> = {
 };
 
 MatchedIfStmt: Span<Stmt> = {
-  <start:@L> <ident: Ident> "=" <expr: Expr> ";" <end:@R> => Stmt::Assign { ident, expr }.into_span(start, end),
+  <start:@L> <lval: LVal> "=" <expr: Expr> ";" <end:@R> => Stmt::Assign { lval, expr }.into_span(start, end),
   <start:@L> <expr: Expr?> ";" <end:@R> => Stmt::Expr { expr }.into_span(start, end),
   <start:@L> <block: Block> <end:@R> => Stmt::Block { block }.into_span(start, end),
   <start:@L> "if" "(" <cond: Expr> ")" <then: MatchedIfStmt> "else" <els: MatchedIfStmt> <end:@R> => Stmt::If {

@@ -179,13 +179,13 @@ impl NonSpanned for ConstDecl {}
 /// Constant Definition
 ///
 /// ```text
-/// ConstDef ::= IDENT ["[" ConstExp "]"] "=" ConstInitVal
+/// ConstDef ::= IDENT ["[" ConstExp "]"] "=" InitVal
 /// ```
 #[derive(Debug, Clone)]
 pub struct ConstDef {
     pub ident: Span<String>,
     pub index: Option<ConstExpr>,
-    pub init: Span<ConstInitVal>,
+    pub init: Span<InitVal>,
 }
 
 impl Spanned for ConstDef {
@@ -197,20 +197,6 @@ impl Spanned for ConstDef {
         self.init.end_pos()
     }
 }
-
-/// Constant Initial Value
-///
-/// ```text
-/// ConstInitVal ::= ConstExpr
-///                | "{" [ConstExpr {"," ConstExpr}] "}"
-/// ```
-#[derive(Debug, Clone)]
-pub enum ConstInitVal {
-    Expr(ConstExpr),
-    InitList(Vec<ConstExpr>),
-}
-
-impl NonSpanned for ConstInitVal {}
 
 /// Variable Declaration
 ///
@@ -306,7 +292,7 @@ impl Spanned for ConstExpr {
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Assign {
-        ident: Span<String>,
+        lval: Span<LVal>,
         expr: Expr,
     },
     Expr {

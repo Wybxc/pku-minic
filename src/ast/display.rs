@@ -103,24 +103,6 @@ impl Display for ConstDef {
     }
 }
 
-impl Display for ConstInitVal {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConstInitVal::Expr(expr) => write!(f, "{}", expr),
-            ConstInitVal::InitList(init_list) => {
-                write!(f, "{{")?;
-                for (i, init) in init_list.iter().enumerate() {
-                    if i != 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", init)?;
-                }
-                write!(f, "}}")
-            }
-        }
-    }
-}
-
 impl Display for ConstExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.expr)
@@ -158,8 +140,8 @@ impl Display for InitVal {
 impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Stmt::Assign { ident, expr } => {
-                writeln!(f, "{} = {};", ident, expr)
+            Stmt::Assign { lval, expr } => {
+                writeln!(f, "{} = {};", lval, expr)
             }
             Stmt::Expr { expr } => {
                 if let Some(expr) = expr {
