@@ -266,15 +266,16 @@ impl ast::BType {
     ) -> Result<(Type, Vec<i32>)> {
         let mut ty = self.build_primitive();
         let mut indices = vec![];
-        for expr in expr_indices {
+        for expr in expr_indices.into_iter().rev() {
             let span = expr.span().into();
             let index = expr.const_eval(symtable)?;
-            if index < 0 {
+            if index <= 0 {
                 Err(CompileError::InvalidArraySize { span, size: index })?;
             }
             ty = Type::get_array(ty, index as usize);
             indices.push(index);
         }
+        indices.reverse();
         Ok((ty, indices))
     }
 
@@ -912,28 +913,7 @@ impl ast::Expr {
                 let num = dfg.new_value().integer(num.node);
                 num
             }
-            ast::Expr::LVal(name) => {
-                let var = symtable.get_var(&name.node.ident.node).ok_or(
-                    CompileError::VariableNotFound {
-                        span: name.span().into(),
-                    },
-                )?;
-                match var {
-                    Symbol::Const(num) => {
-                        let dfg = layout.dfg_mut();
-                        let num = dfg.new_value().integer(*num);
-                        num
-                    }
-                    Symbol::Var(var, _, _) => {
-                        let dfg = layout.dfg_mut();
-                        let load = dfg.new_value().load(*var);
-                        layout.push_inst(load)
-                    }
-                    Symbol::Func(_) => Err(CompileError::FuncAsVar {
-                        span: name.span().into(),
-                    })?,
-                }
-            }
+            ast::Expr::LVal(lval) => lval.build_rval(symtable, layout)?,
             ast::Expr::Call(call) => {
                 let span = call.node.ident.span().into();
                 let func = symtable
