@@ -10,7 +10,7 @@ use crate::{
         context::Context,
         layout::LayoutBuilder,
         metadata::{FunctionMetadata, ProgramMetadata},
-        types::{IndexCast, VType},
+        types::{IndexCast, TypeCast, VType},
     },
 };
 
@@ -678,7 +678,7 @@ impl ast::Stmt {
         match self {
             ast::Stmt::Assign { lval, expr } => {
                 // Get the variable.
-                let (var, ty) = lval.build_ir_in(symtable, layout, true)?;
+                let (var, ty) = lval.build_lval(symtable, layout)?;
 
                 // Compute the expression.
                 let expr = expr.build_ir_in(symtable, layout, Some(ty))?;
@@ -957,29 +957,7 @@ impl ast::Expr {
                 let num = dfg.new_value().integer(num.node);
                 num
             }
-            ast::Expr::LVal(lval) => {
-                let (var, ty) = lval.build_ir_in(symtable, layout, false)?;
-                if let Some(expected_type) = &expected_type {
-                    match ty.cast(expected_type) {
-                        types::TypeCast::Noop => {}
-                        types::TypeCast::ArrayToPtr => {
-                            // T[N][..]* -> T[..]*
-                            let dfg = layout.dfg_mut();
-                            let index = dfg.new_value().integer(0);
-                            let ptr = dfg.new_value().get_elem_ptr(var, index);
-                            return Ok(layout.push_inst(ptr));
-                        }
-                        types::TypeCast::Fail => Err(CompileError::TypeError {
-                            span,
-                            expected: expected_type.to_string(),
-                            found: ty.to_string(),
-                        })?,
-                    }
-                }
-                // T* -> T
-                let load = layout.dfg_mut().new_value().load(var);
-                layout.push_inst(load)
-            }
+            ast::Expr::LVal(lval) => lval.build_rval(symtable, layout, expected_type)?,
             ast::Expr::Call(call) => {
                 let span = call.node.ident.span().into();
                 let func = symtable
@@ -1071,29 +1049,75 @@ impl ast::Expr {
 
 impl Span<ast::LVal> {
     /// Build IR for a left value.
-    pub fn build_ir_in(
+    pub fn build_lval(
         self,
         symtable: &SymbolTable,
         layout: &mut LayoutBuilder,
-        write: bool,
     ) -> Result<(Value, VType)> {
         let span = self.span().into();
         let var = symtable
             .get_var(&self.node.ident.node)
             .ok_or(CompileError::VariableNotFound { span })?;
         let (var, ty) = match var {
-            Symbol::Const(_) => Err(CompileError::AssignToConst { span })?,
-            Symbol::Var(var, ty, is_const) => {
-                if write && *is_const {
-                    Err(CompileError::AssignToConst { span })?
-                } else {
-                    (*var, ty.clone())
-                }
+            Symbol::Const(_) | Symbol::Var(_, _, true) => {
+                Err(CompileError::AssignToConst { span })?
             }
+            Symbol::Var(var, ty, false) => (*var, ty.clone()),
             Symbol::Func(_, _, _) => Err(CompileError::FuncAsVar { span })?,
         };
         let (var, ty) = self.indices(var, ty, symtable, layout)?;
         Ok((var, ty))
+    }
+
+    /// Build IR for a left value.
+    pub fn build_rval(
+        self,
+        symtable: &SymbolTable,
+        layout: &mut LayoutBuilder,
+        cast: Option<VType>,
+    ) -> Result<Value> {
+        let span = self.span().into();
+        let var = symtable
+            .get_var(&self.node.ident.node)
+            .ok_or(CompileError::VariableNotFound { span })?;
+        match var {
+            Symbol::Const(i) => {
+                let ty = cast.unwrap_or_else(|| VType::Int);
+                if ty != VType::Int {
+                    Err(CompileError::TypeError {
+                        span,
+                        expected: ty.to_string(),
+                        found: VType::Int.to_string(),
+                    })?;
+                }
+                let i = layout.dfg_mut().new_value().integer(*i);
+                Ok(i)
+            }
+            Symbol::Var(var, ty, _) => {
+                let (var, ty) = self.indices(*var, ty.clone(), symtable, layout)?;
+                let cast = cast.as_ref().unwrap_or(&ty);
+                match ty.cast(cast) {
+                    TypeCast::Noop => {
+                        // T* -> T
+                        let load = layout.dfg_mut().new_value().load(var);
+                        Ok(layout.push_inst(load))
+                    }
+                    TypeCast::ArrayToPtr => {
+                        // T[N][..]* -> T[..]*
+                        let dfg = layout.dfg_mut();
+                        let index = dfg.new_value().integer(0);
+                        let ptr = dfg.new_value().get_elem_ptr(var, index);
+                        Ok(layout.push_inst(ptr))
+                    }
+                    TypeCast::Fail => Err(CompileError::TypeError {
+                        span,
+                        expected: cast.to_string(),
+                        found: ty.to_string(),
+                    })?,
+                }
+            }
+            Symbol::Func(_, _, _) => Err(CompileError::FuncAsVar { span })?,
+        }
     }
 
     fn indices(
