@@ -1,20 +1,33 @@
 //! Peephole optimizations.
 
+use std::collections::VecDeque;
+
 use imbl::HashMap;
+use key_node_list::Node;
+#[allow(unused_imports)]
+use nolog::*;
 
 use crate::codegen::{
     imm::i12,
-    riscv::{Block, Inst, RegId},
+    riscv::{make_reg_set, Block, BlockId, Function, Inst, InstId, RegId, RegSet},
 };
 
-pub fn optimize(block: &mut Block, opt_level: u8) {
+pub fn optimize(function: &mut Function, opt_level: u8) {
     if opt_level >= 1 {
-        copy_propagation(block);
-        constant_fold(block);
+        function.for_each_mut(|_, block| {
+            copy_propagation(block);
+            constant_fold(block);
+        });
+        dead_code_elimination(function);
     }
     if opt_level >= 2 {
-        copy_propagation(block);
-        constant_fold(block);
+        for _ in 0..3 {
+            function.for_each_mut(|_, block| {
+                copy_propagation(block);
+                constant_fold(block);
+            });
+            dead_code_elimination(function);
+        }
     }
 }
 
@@ -79,8 +92,26 @@ pub fn copy_propagation(block: &mut Block) {
     let mut source = SourceMap::default();
 
     while !cursor.is_null() {
+        // remove redundant inst
+        let inst = cursor.inst().unwrap();
+        match inst {
+            Inst::Li(r, i) => {
+                if source.get(r) == Some(Source::Imm(i)) {
+                    cursor.remove_and_next();
+                    continue;
+                }
+            }
+            Inst::Mv(r, s) => {
+                if r == s || source.get(r) == Some(Source::Reg(s)) {
+                    cursor.remove_and_next();
+                    continue;
+                }
+            }
+            _ => {}
+        }
+
         // do propagation
-        match cursor.inst().unwrap() {
+        match inst {
             Inst::Mv(r, s) => match source.get(s) {
                 Some(Source::Imm(i)) => cursor.set_inst(Inst::Li(r, i)),
                 Some(Source::Reg(s)) => cursor.set_inst(Inst::Mv(r, s)),
@@ -193,7 +224,8 @@ pub fn constant_fold(block: &mut Block) {
 
     while !cursor.is_null() {
         // do constant fold
-        match cursor.inst().unwrap() {
+        let inst = cursor.inst().unwrap();
+        match inst {
             Inst::Mv(r, s) => {
                 if let Some(i) = constant.get(s) {
                     cursor.set_inst(Inst::Li(r, i));
@@ -243,4 +275,174 @@ pub fn constant_fold(block: &mut Block) {
         }
         cursor.next();
     }
+}
+
+pub struct Liveliness<'a> {
+    function: &'a Function,
+    cfg_pred: HashMap<BlockId, Vec<(BlockId, InstId)>>,
+    /// Work list of instructions to process.
+    work_list: VecDeque<(BlockId, InstId)>,
+    /// Variables live after the instruction.
+    after: HashMap<InstId, RegSet>,
+    /// Variables live before the instruction.
+    before: HashMap<InstId, RegSet>,
+}
+
+impl<'a> Liveliness<'a> {
+    pub fn new(function: &'a Function) -> Self {
+        let mut cfg_pred = HashMap::new();
+        let mut sinks = vec![];
+
+        for (bb, block) in function.iter() {
+            for (id, inst) in block.insts() {
+                match inst {
+                    Inst::J(tgt)
+                    | Inst::Beq(_, _, tgt)
+                    | Inst::Beqz(_, tgt)
+                    | Inst::Bge(_, _, tgt)
+                    | Inst::Bgeu(_, _, tgt)
+                    | Inst::Bgez(_, tgt)
+                    | Inst::Bgt(_, _, tgt)
+                    | Inst::Bgtu(_, _, tgt)
+                    | Inst::Bgtz(_, tgt)
+                    | Inst::Ble(_, _, tgt)
+                    | Inst::Bleu(_, _, tgt)
+                    | Inst::Blez(_, tgt)
+                    | Inst::Blt(_, _, tgt)
+                    | Inst::Bltu(_, _, tgt)
+                    | Inst::Bltz(_, tgt)
+                    | Inst::Bne(_, _, tgt)
+                    | Inst::Bnez(_, tgt) => {
+                        cfg_pred.entry(tgt).or_insert_with(Vec::new).push((bb, id));
+                    }
+                    Inst::Ret => {
+                        sinks.push((bb, id));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let mut after = HashMap::new();
+        for &(_, id) in sinks.iter() {
+            after.insert(id, RegSet::from_bitset(make_reg_set!(A0, SP, RA)));
+        }
+
+        Self {
+            function,
+            cfg_pred,
+            work_list: sinks.into_iter().collect(),
+            after,
+            before: HashMap::new(),
+        }
+    }
+
+    pub fn analyze(mut self) -> HashMap<InstId, RegSet> {
+        while let Some((bb, id)) = self.work_list.pop_front() {
+            // before = (after - defined) | used
+            let after = *self.after_mut(id);
+            let (used, defined) = self.analyze_local(bb, id);
+            let before = (after - defined) | used;
+
+            // If changed, add predecessors to work list.
+            if self.before.get(&id) != Some(&before) {
+                self.before.insert(id, before);
+                for (bb, pred) in self.preds(bb, id).unwrap() {
+                    // after = union(before[succ] for succ in successors)
+                    *self.after_mut(pred) |= before;
+                    // Add to work list.
+                    self.work_list.push_back((bb, pred));
+                }
+            }
+        }
+
+        self.after
+    }
+
+    fn analyze_local(&self, bb: BlockId, id: InstId) -> (RegSet, RegSet) {
+        let inst = self.function.get(bb).unwrap().get(id).unwrap();
+        if let Inst::Call(_) = inst {
+            const USED: u32 = make_reg_set!(A0, A1, A2, A3, A4, A5, A6, A7);
+            const DEFINED: u32 = make_reg_set!(A0);
+            let used = RegSet::from_bitset(USED);
+            let defined = RegSet::from_bitset(DEFINED);
+            return (used, defined);
+        }
+        let mut used = RegSet::new();
+        let mut defined = RegSet::new();
+        for src in inst.source().iter().flatten() {
+            used.insert(*src);
+        }
+        if let Some(dest) = inst.dest() {
+            defined.insert(dest);
+        }
+        (used, defined)
+    }
+
+    fn preds(&self, bb: BlockId, id: InstId) -> Option<Vec<(BlockId, InstId)>> {
+        let mut preds = vec![];
+        // previous instr in the same block
+        let mut prev = self
+            .function
+            .get(bb)?
+            .get_node(id)?
+            .prev()
+            .map(|&id| (bb, id));
+        if prev.is_none() {
+            // if this is the first instr in the block, add predecessors
+            // from cfg
+            if let Some(cfg_pred) = self.cfg_pred.get(&bb) {
+                preds.extend(cfg_pred.iter().copied());
+            }
+            // search for the last instr in the previous block
+            prev = self
+                .function
+                .get_node(bb)?
+                .prev()
+                .and_then(|&bb| Some((bb, self.function.get(bb)?.back()?)));
+        }
+        // if the previous instr is a jump, ignore it
+        if let Some((bb, id)) = prev {
+            if matches!(self.function.get(bb)?.get(id)?, Inst::J(_)) {
+                prev = None;
+            }
+        }
+        preds.extend(prev);
+        Some(preds)
+    }
+
+    fn after_mut(&mut self, id: InstId) -> &mut RegSet {
+        self.after.entry(id).or_insert(RegSet::new())
+    }
+}
+
+pub fn dead_code_elimination(function: &mut Function) {
+    trace!(->[0] "DCE " => "function:");
+    let liveliness = Liveliness::new(function);
+    let after = liveliness.analyze();
+
+    function.for_each_mut(|_, block| {
+        let Some(front) = block.front() else { return };
+        let mut cursor = block.cursor_mut(front);
+        while !cursor.is_null() {
+            let id = cursor.id().unwrap();
+            let inst = cursor.inst().unwrap();
+            if let Some(after) = after.get(&id) {
+                if let Some(dest) = inst.dest() {
+                    trace!("DCE " => "live_out of `{}`: {}", inst, {
+                        after
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    });
+                    if !after.contains(dest) {
+                        cursor.remove_and_next();
+                        continue;
+                    }
+                }
+            }
+            cursor.next();
+        }
+    });
 }

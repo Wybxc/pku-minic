@@ -161,6 +161,32 @@ impl<const MASK: u32> RegSet<MASK> {
     }
 }
 
+impl std::ops::Sub for RegSet {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            bitset: self.bitset & !rhs.bitset,
+        }
+    }
+}
+
+impl std::ops::BitOr for RegSet {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self {
+            bitset: self.bitset | rhs.bitset,
+        }
+    }
+}
+
+impl std::ops::BitOrAssign for RegSet {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = *self | rhs;
+    }
+}
+
 /// RISC-V frame size.
 ///
 /// ```text
@@ -663,7 +689,8 @@ impl InstId {
 
 /// Node in the instruction list.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct InstNode {
+pub struct InstNode {
+    /// Instruction.
     pub inst: Inst,
     prev: Option<InstId>,
     next: Option<InstId>,
@@ -710,6 +737,11 @@ impl Block {
     /// Get the instruction with the given id.
     pub fn get(&self, id: InstId) -> Option<Inst> {
         self.instructions.cursor(id).node().map(|node| node.inst)
+    }
+
+    /// Get the instruction node with the given id.
+    pub fn get_node(&self, id: InstId) -> Option<&InstNode> {
+        self.instructions.node(&id)
     }
 
     /// The number of instructions in the basic block.
@@ -933,9 +965,10 @@ impl Display for BlockId {
     }
 }
 
-/// Node in the instruction list.
+/// Node in the basic block list.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct BlockNode {
+pub struct BlockNode {
+    /// Basic block.
     pub block: Block,
     prev: Option<BlockId>,
     next: Option<BlockId>,
@@ -1011,6 +1044,11 @@ impl Function {
         self.blocks.node(&id).map(|node| &node.block)
     }
 
+    /// Get the basic block node with the given id.
+    pub fn get_node(&self, id: BlockId) -> Option<&BlockNode> {
+        self.blocks.node(&id)
+    }
+
     /// Number of basic blocks in the function.
     pub fn len(&self) -> usize {
         self.blocks.len()
@@ -1024,6 +1062,19 @@ impl Function {
     /// Iterator over the basic blocks in the function.
     pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> + '_ {
         self.blocks.iter().map(|(&id, node)| (id, &node.block))
+    }
+
+    /// Iterate over the basic blocks in the function, with mutable access.
+    pub fn for_each_mut(&mut self, mut f: impl FnMut(BlockId, &mut Block)) {
+        if let Some(&front_key) = self.blocks.front_key() {
+            let mut cursor = self.blocks.cursor_mut(front_key);
+            while !cursor.is_null() {
+                let id = *cursor.key().unwrap();
+                let block = cursor.node_mut().unwrap();
+                f(id, &mut block.block);
+                cursor.move_next();
+            }
+        };
     }
 
     /// Provide a cursor to the basic block with the given id.

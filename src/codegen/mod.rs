@@ -178,13 +178,13 @@ impl Codegen<&koopa::ir::FunctionData> {
                 Codegen(inst).generate(&mut block, program_ctx, function_ctx, epilogue.iter());
                 block.add_annotation(utils::dbg_inst(inst, function_ctx.dfg));
             }
-            let mut block = block.build();
-
-            // peephole optimization.
-            peephole::optimize(&mut block, opt_level);
+            let block = block.build();
 
             func.push(id, block);
         }
+
+        // peephole optimization.
+        peephole::optimize(&mut func, opt_level);
 
         func
     }
