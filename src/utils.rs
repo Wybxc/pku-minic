@@ -72,6 +72,9 @@ thread_local! {
 
 /// Get the name of a value for debug printing.
 pub fn ident_inst(inst: Value, dfg: &DataFlowGraph) -> String {
+    if !dfg.values().contains_key(&inst) {
+        return format!("Global({:?})", inst);
+    }
     let value = dfg.value(inst);
     value.name().clone().unwrap_or_else(|| {
         NAME_MAP.with(|map| {

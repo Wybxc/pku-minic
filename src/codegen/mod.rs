@@ -421,24 +421,23 @@ impl Codegen<koopa::ir::entities::Value> {
                 let nodes = moves.len();
                 {
                     use petgraph::prelude::*;
-                    let mut graph = DiGraph::with_capacity(nodes, nodes);
+                    let mut graph = DiGraphMap::with_capacity(nodes, nodes);
                     for (&target, &arg) in moves.iter() {
                         if target != arg {
-                            let target: NodeIndex = graph.add_node(target);
-                            let arg: NodeIndex = graph.add_node(arg);
                             graph.add_edge(target, arg, ());
                         }
                     }
-                    let mut scc = petgraph::algo::kosaraju_scc(&graph);
+                    let mut scc = petgraph::algo::tarjan_scc(&graph);
                     scc.reverse(); // topological order
+                    trace!("CALL" => "scc: {:?}", scc);
                     for scc in scc.into_iter() {
                         if scc.len() == 1 {
-                            let target = graph[scc[0]];
+                            let target = scc[0];
                             if let Some(&arg) = moves.get(&target) {
                                 block.push(Inst::Mv(target, arg));
                             }
                         } else {
-                            let mut target = graph[scc[0]];
+                            let mut target = scc[0];
                             let mut arg = moves[&target];
                             block.push(Inst::Mv(RegId::T0, target));
                             for _ in 1..scc.len() {
