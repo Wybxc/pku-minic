@@ -136,7 +136,7 @@ impl<'a> LivelinessAnalyzer<'a> {
                 used.insert(*val).is_none()
             });
             let value = self.func.dfg().value(inst);
-            if !value.ty().is_unit() && !matches!(value.kind(), koopa::ir::ValueKind::Alloc(_)) {
+            if !value.ty().is_unit() {
                 defined.insert(inst);
                 used.remove(&inst);
             }
@@ -166,16 +166,12 @@ fn operand_vars(value: Value, dfg: &DataFlowGraph) -> Vec<Value> {
         ValueKind::Binary(bin) => {
             let lhs = bin.lhs();
             let rhs = bin.rhs();
-            [Some(lhs).filter(is_var), Some(rhs).filter(is_var)]
-                .iter()
-                .flatten()
-                .copied()
-                .collect()
+            [lhs, rhs].iter().copied().filter(is_var).collect()
         }
         ValueKind::Store(store) => {
-            let val = Some(store.value()).filter(is_var);
-            // let ptr = Some(store.dest()).filter(is_var);
-            val.iter().copied().collect()
+            let val = store.value();
+            let ptr = store.dest();
+            [val, ptr].iter().copied().filter(is_var).collect()
         }
         ValueKind::Load(load) => {
             let addr = Some(load.src()).filter(is_var);
