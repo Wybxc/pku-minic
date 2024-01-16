@@ -133,7 +133,7 @@ impl ast::FuncDef {
         let span = self.ident.span().into();
         let metadata = FunctionMetadata::new(self.ident.clone());
         let kp_name = format!("@{}", self.ident.node);
-        let params = self.params.iter().map(|p| p.build_ir()).collect();
+        let params = self.params.iter().map(|p| p.node.build_ir()).collect();
         let ret_type = self.func_type.node.build_primitive();
         let func = program.new_func(FunctionData::with_param_names(kp_name, params, ret_type));
         prog_metadata.functions.insert(func, metadata);
@@ -153,9 +153,9 @@ impl ast::FuncDef {
         symtable.push();
         let params = layout.params().to_vec();
         for (value, param) in params.into_iter().zip(self.params) {
-            let span = param.ident.span().into();
+            let span = param.node.ident.span().into();
             let dfg = layout.dfg_mut();
-            let name = param.ident.node;
+            let name = param.node.ident.node;
             let ty = dfg.value(value).ty().clone();
             let var = dfg.new_value().alloc(ty.clone());
             let store = dfg.new_value().store(value, var);

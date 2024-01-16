@@ -62,7 +62,7 @@ impl Spanned for TopLevelItem {
 pub struct FuncDef {
     pub func_type: Span<BType>,
     pub ident: Span<String>,
-    pub params: Vec<FuncParam>,
+    pub params: Vec<Span<FuncParam>>,
     pub block: Span<Block>,
 }
 
@@ -85,17 +85,10 @@ impl Spanned for FuncDef {
 pub struct FuncParam {
     pub ty: Span<BType>,
     pub ident: Span<String>,
+    pub indices: Option<Vec<ConstExpr>>,
 }
 
-impl Spanned for FuncParam {
-    fn start_pos(&self) -> usize {
-        self.ty.start_pos()
-    }
-
-    fn end_pos(&self) -> usize {
-        self.ident.end_pos()
-    }
-}
+impl NonSpanned for FuncParam {}
 
 /// Block
 ///

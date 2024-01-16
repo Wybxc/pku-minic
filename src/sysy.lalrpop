@@ -28,7 +28,7 @@ FuncDef: FuncDef = {
   }
 };
 
-FuncParams: Vec<FuncParam> = {
+FuncParams: Vec<Span<FuncParam>> = {
   <param: FuncParam> => vec![param],
   <params: FuncParams> "," <param: FuncParam> => {
     let mut params = params;
@@ -37,8 +37,11 @@ FuncParams: Vec<FuncParam> = {
   },
 };
 
-FuncParam: FuncParam = {
-  <ty: BType> <ident: Ident> => FuncParam { ty, ident },
+FuncParam: Span<FuncParam> = {
+  <start:@L> <ty: BType> <ident: Ident> <end:@R> => FuncParam { ty, ident, indices: None }.into_span(start, end),
+  <start:@L> <ty: BType> <ident: Ident> "[" "]" <indices: ("[" <ConstExpr> "]")*> <end:@R> => {
+    FuncParam { ty, ident, indices: Some(indices) }.into_span(start, end)
+  },
 };
 
 Block: Span<Block> = <start:@L> "{" <items: BlockItem*> "}" <end:@R> => {
