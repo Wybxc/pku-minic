@@ -305,9 +305,7 @@ pub enum Stmt {
     },
     Break(Span<()>),
     Continue(Span<()>),
-    Return {
-        expr: Expr, // todo: optional
-    },
+    Return(Option<Expr>),
 }
 
 impl NonSpanned for Stmt {}

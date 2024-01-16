@@ -688,10 +688,13 @@ impl ast::Stmt {
                 layout.push_inst(store);
                 Ok(false.into())
             }
-            ast::Stmt::Return { expr } => {
-                let expr = expr.build_ir_in(symtable, layout, Some(VType::Int))?;
-                let dfg = layout.dfg_mut();
-                let ret = dfg.new_value().ret(Some(expr));
+            ast::Stmt::Return(expr) => {
+                let value = if let Some(expr) = expr {
+                    Some(expr.build_ir_in(symtable, layout, Some(VType::Int))?)
+                } else {
+                    None
+                };
+                let ret = layout.dfg_mut().new_value().ret(value);
                 layout.push_inst(ret);
                 Ok(true.into())
             }

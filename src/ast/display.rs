@@ -174,8 +174,11 @@ impl Display for Stmt {
             Stmt::Continue(_) => {
                 writeln!(f, "continue;")
             }
-            Stmt::Return { expr } => {
+            Stmt::Return(Some(expr)) => {
                 writeln!(f, "return {};", expr)
+            }
+            Stmt::Return(None) => {
+                writeln!(f, "return;")
             }
         }
     }
