@@ -678,7 +678,7 @@ impl ast::Stmt {
         match self {
             ast::Stmt::Assign { lval, expr } => {
                 // Get the variable.
-                let (var, ty) = lval.build_ir_in(symtable, layout)?;
+                let (var, ty) = lval.build_ir_in(symtable, layout, true)?;
 
                 // Compute the expression.
                 let expr = expr.build_ir_in(symtable, layout, Some(ty))?;
@@ -958,7 +958,7 @@ impl ast::Expr {
                 num
             }
             ast::Expr::LVal(lval) => {
-                let (var, ty) = lval.build_ir_in(symtable, layout)?;
+                let (var, ty) = lval.build_ir_in(symtable, layout, false)?;
                 if let Some(expected_type) = &expected_type {
                     match ty.cast(expected_type) {
                         types::TypeCast::Noop => {}
@@ -1075,16 +1075,21 @@ impl Span<ast::LVal> {
         self,
         symtable: &SymbolTable,
         layout: &mut LayoutBuilder,
+        write: bool,
     ) -> Result<(Value, VType)> {
         let span = self.span().into();
         let var = symtable
             .get_var(&self.node.ident.node)
             .ok_or(CompileError::VariableNotFound { span })?;
         let (var, ty) = match var {
-            Symbol::Const(_) | Symbol::Var(_, _, true) => {
-                Err(CompileError::AssignToConst { span })?
+            Symbol::Const(_) => Err(CompileError::AssignToConst { span })?,
+            Symbol::Var(var, ty, is_const) => {
+                if write && *is_const {
+                    Err(CompileError::AssignToConst { span })?
+                } else {
+                    (*var, ty.clone())
+                }
             }
-            Symbol::Var(var, ty, false) => (*var, ty.clone()),
             Symbol::Func(_, _, _) => Err(CompileError::FuncAsVar { span })?,
         };
         let (var, ty) = self.indices(var, ty, symtable, layout)?;
