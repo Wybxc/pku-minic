@@ -2,14 +2,18 @@
 
 use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 
-use koopa::ir::{Function, Type, Value};
+use imbl::Vector;
+use koopa::ir::{Function, Value};
+
+use crate::irgen::types::VType;
 
 /// Symbol, can be const or variable.
 pub enum Symbol {
     Const(i32),
     /// (value, type, is_const)
-    Var(Value, Type, bool),
-    Func(Function),
+    Var(Value, VType, bool),
+    /// (function, args, return_type)
+    Func(Function, Vector<VType>, VType),
 }
 
 /// Symbol table.

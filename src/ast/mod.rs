@@ -306,7 +306,7 @@ pub enum Stmt {
     Break(Span<()>),
     Continue(Span<()>),
     Return {
-        expr: Expr,
+        expr: Expr, // todo: optional
     },
 }
 

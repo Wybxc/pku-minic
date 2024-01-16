@@ -1,5 +1,6 @@
 //! Build IR from AST.
 
+use imbl::Vector;
 use koopa::ir::{builder_traits::*, dfg::DataFlowGraph, *};
 use miette::Result;
 
@@ -9,6 +10,7 @@ use crate::{
         context::Context,
         layout::LayoutBuilder,
         metadata::{FunctionMetadata, ProgramMetadata},
+        types::{IndexCast, VType},
     },
 };
 
@@ -17,6 +19,7 @@ mod error;
 mod layout;
 pub mod metadata;
 mod symtable;
+mod types;
 
 use error::CompileError;
 use symtable::{Symbol, SymbolTable};
@@ -63,33 +66,33 @@ impl ast::CompUnit {
         metadata: &mut ProgramMetadata,
     ) -> Result<()> {
         // decl @getint(): i32
-        self.decl_function(symtable, program, "@getint", vec![], Type::get_i32());
+        self.decl_function(symtable, program, "@getint", [], VType::Int);
         // decl @getch(): i32
-        self.decl_function(symtable, program, "@getch", vec![], Type::get_i32());
+        self.decl_function(symtable, program, "@getch", [], VType::Int);
         // decl @getarray(*i32): i32
-        // self.decl_function(symtable, program, "@getarray", vec![Type::get_ptr(Type::get_i32())], Type::get_i32());
+        self.decl_function(
+            symtable,
+            program,
+            "@getarray",
+            [VType::Int.into_ptr()],
+            VType::Int,
+        );
         // decl @putint(i32)
-        self.decl_function(
-            symtable,
-            program,
-            "@putint",
-            vec![Type::get_i32()],
-            Type::get_unit(),
-        );
+        self.decl_function(symtable, program, "@putint", [VType::Int], VType::Void);
         // decl @putch(i32)
+        self.decl_function(symtable, program, "@putch", [VType::Int], VType::Void);
+        // decl @putarray(i32, *i32)
         self.decl_function(
             symtable,
             program,
-            "@putch",
-            vec![Type::get_i32()],
-            Type::get_unit(),
+            "@putarray",
+            [VType::Int, VType::Int.into_ptr()],
+            VType::Void,
         );
-        // decl @putarray(i32, *i32)
-        // self.decl_function(symtable, program, "@putarray", vec![Type::get_i32(), Type::get_ptr(Type::get_i32())], Type::get_unit());
         // decl @starttime()
-        self.decl_function(symtable, program, "@starttime", vec![], Type::get_unit());
+        self.decl_function(symtable, program, "@starttime", [], VType::Void);
         // decl @stoptime()
-        self.decl_function(symtable, program, "@stoptime", vec![], Type::get_unit());
+        self.decl_function(symtable, program, "@stoptime", [], VType::Void);
 
         for item in self.top_levels {
             match item {
@@ -109,12 +112,17 @@ impl ast::CompUnit {
         symtable: &mut SymbolTable,
         program: &mut Program,
         name: &'static str,
-        params_ty: Vec<Type>,
-        ret_ty: Type,
+        params_ty: impl Into<Vector<VType>>,
+        ret_ty: VType,
     ) {
-        let func = program.new_func(FunctionData::new_decl(name.into(), params_ty, ret_ty));
+        let params_ty = params_ty.into();
+        let func = program.new_func(FunctionData::new_decl(
+            name.into(),
+            params_ty.iter().map(VType::to_koopa).collect(),
+            ret_ty.to_koopa(),
+        ));
         if symtable
-            .insert_var(name[1..].into(), Symbol::Func(func))
+            .insert_var(name[1..].into(), Symbol::Func(func, params_ty, ret_ty))
             .is_some()
         {
             unreachable!();
@@ -133,14 +141,36 @@ impl ast::FuncDef {
         let span = self.ident.span().into();
         let metadata = FunctionMetadata::new(self.ident.clone());
         let kp_name = format!("@{}", self.ident.node);
-        let params = self.params.iter().map(|p| p.node.build_ir()).collect();
+
+        let param_idents = self
+            .params
+            .iter()
+            .map(|p| p.node.ident.clone())
+            .collect::<Vec<_>>();
+        let params_ty = self
+            .params
+            .into_iter()
+            .map(|p| p.node.get_type(symtable))
+            .collect::<Result<Vector<_>>>()?;
+        let params = param_idents
+            .iter()
+            .zip(params_ty.iter())
+            .map(|(ident, ty)| (Some(format!("@{}", ident.node)), ty.to_koopa()))
+            .collect();
         let ret_type = self.func_type.node.build_primitive();
-        let func = program.new_func(FunctionData::with_param_names(kp_name, params, ret_type));
+        let func = program.new_func(FunctionData::with_param_names(
+            kp_name,
+            params,
+            ret_type.to_koopa(),
+        ));
         prog_metadata.functions.insert(func, metadata);
 
         // add function to global symbol table
         if symtable
-            .insert_var(self.ident.node, Symbol::Func(func))
+            .insert_var(
+                self.ident.node,
+                Symbol::Func(func, params_ty.clone(), ret_type),
+            )
             .is_some()
         {
             Err(CompileError::FunctionDefinedTwice { span })?;
@@ -152,17 +182,15 @@ impl ast::FuncDef {
         // alloc var for parameters
         symtable.push();
         let params = layout.params().to_vec();
-        for (value, param) in params.into_iter().zip(self.params) {
-            let span = param.node.ident.span().into();
+        for ((value, ident), ty) in params.into_iter().zip(param_idents).zip(params_ty) {
+            let span = ident.span().into();
             let dfg = layout.dfg_mut();
-            let name = param.node.ident.node;
-            let ty = dfg.value(value).ty().clone();
-            let var = dfg.new_value().alloc(ty.clone());
+            let var = dfg.new_value().alloc(ty.to_koopa());
             let store = dfg.new_value().store(value, var);
-            dfg.set_value_name(var, Some(format!("%{}", name)));
+            dfg.set_value_name(var, Some(format!("%{}", ident.node)));
             layout.push_insts([var, store]);
             if symtable
-                .insert_var(name, Symbol::Var(var, ty, false))
+                .insert_var(ident.node, Symbol::Var(var, ty, false))
                 .is_some()
             {
                 Err(CompileError::DuplicateParameter { span })?;
@@ -184,11 +212,12 @@ impl ast::FuncDef {
 
 impl ast::FuncParam {
     /// Build IR from AST.
-    pub fn build_ir(&self) -> (Option<String>, Type) {
-        (
-            Some(format!("@{}", self.ident.node)),
-            self.ty.node.build_primitive(),
-        )
+    pub fn get_type(self, symtable: &SymbolTable) -> Result<VType> {
+        Ok(if let Some(indices) = self.indices {
+            self.ty.node.build_ir(indices, symtable)?.0.into_ptr()
+        } else {
+            self.ty.node.build_primitive()
+        })
     }
 }
 
@@ -251,31 +280,27 @@ impl ast::Decl {
 
 impl ast::BType {
     /// Build IR from AST.
-    pub fn build_primitive(&self) -> Type {
+    pub fn build_primitive(&self) -> VType {
         match self {
-            ast::BType::Int => Type::get_i32(),
-            ast::BType::Void => Type::get_unit(),
+            ast::BType::Int => VType::Int,
+            ast::BType::Void => VType::Void,
         }
     }
 
     /// Build IR from AST for array types.
     pub fn build_ir(
         &self,
-        expr_indices: Vec<ConstExpr>,
-        symtable: &mut SymbolTable,
-    ) -> Result<(Type, Vec<i32>)> {
+        indices: Vec<ConstExpr>,
+        symtable: &SymbolTable,
+    ) -> Result<(VType, Vec<i32>)> {
+        let indices = indices
+            .into_iter()
+            .map(|expr| expr.const_eval(symtable))
+            .collect::<Result<Vec<_>>>()?;
         let mut ty = self.build_primitive();
-        let mut indices = vec![];
-        for expr in expr_indices.into_iter().rev() {
-            let span = expr.span().into();
-            let index = expr.const_eval(symtable)?;
-            if index <= 0 {
-                Err(CompileError::InvalidArraySize { span, size: index })?;
-            }
-            ty = Type::get_array(ty, index as usize);
-            indices.push(index);
+        for index in indices.iter().copied().rev() {
+            ty = ty.into_array(index);
         }
-        indices.reverse();
         Ok((ty, indices))
     }
 
@@ -323,7 +348,7 @@ impl ast::ConstDef {
             let (ty, indices) = ty.build_ir(self.indices, symtable)?;
 
             // Allocate a new array.
-            let array = layout.dfg_mut().new_value().alloc(ty.clone());
+            let array = layout.dfg_mut().new_value().alloc(ty.to_koopa());
             layout.push_inst(array);
 
             // Initialize the array.
@@ -438,7 +463,7 @@ impl ast::VarDef {
 
         // Allocate a new variable.
         let dfg = layout.dfg_mut();
-        let var = dfg.new_value().alloc(ty.clone());
+        let var = dfg.new_value().alloc(ty.to_koopa());
         dfg.set_value_name(var, Some(format!("@{}", self.ident.node)));
         layout.push_inst(var);
 
@@ -480,7 +505,7 @@ impl ast::VarDef {
             init.canonicalize(&indices)?
                 .build_ir_global(symtable, program)?
         } else {
-            program.new_value().zero_init(ty.clone())
+            program.new_value().zero_init(ty.to_koopa())
         };
 
         // Allocate a new variable.
@@ -588,7 +613,7 @@ impl Span<ast::InitVal> {
     pub fn build_ir_in(
         self,
         ptr: Value,
-        symtable: &mut SymbolTable,
+        symtable: &SymbolTable,
         layout: &mut LayoutBuilder,
         is_const: bool,
     ) -> Result<()> {
@@ -598,7 +623,7 @@ impl Span<ast::InitVal> {
                     let val = expr.const_eval(symtable)?;
                     layout.dfg_mut().new_value().integer(val)
                 } else {
-                    expr.build_ir_in(symtable, layout)?
+                    expr.build_ir_in(symtable, layout, Some(VType::Int))?
                 };
                 let store = layout.dfg_mut().new_value().store(expr, ptr);
                 layout.push_inst(store);
@@ -617,11 +642,7 @@ impl Span<ast::InitVal> {
     }
 
     /// Build IR from AST for global variables.
-    pub fn build_ir_global(
-        self,
-        symtable: &mut SymbolTable,
-        program: &mut Program,
-    ) -> Result<Value> {
+    pub fn build_ir_global(self, symtable: &SymbolTable, program: &mut Program) -> Result<Value> {
         match self.node {
             ast::InitVal::Expr(expr) => {
                 let val = expr.const_eval(symtable)?;
@@ -657,10 +678,10 @@ impl ast::Stmt {
         match self {
             ast::Stmt::Assign { lval, expr } => {
                 // Get the variable.
-                let var = lval.build_lval(symtable, layout)?;
+                let (var, ty) = lval.build_ir_in(symtable, layout)?;
 
                 // Compute the expression.
-                let expr = expr.build_ir_in(symtable, layout)?;
+                let expr = expr.build_ir_in(symtable, layout, Some(ty))?;
 
                 // Store the value.
                 let store = layout.dfg_mut().new_value().store(expr, var);
@@ -668,7 +689,7 @@ impl ast::Stmt {
                 Ok(false.into())
             }
             ast::Stmt::Return { expr } => {
-                let expr = expr.build_ir_in(symtable, layout)?;
+                let expr = expr.build_ir_in(symtable, layout, Some(VType::Int))?;
                 let dfg = layout.dfg_mut();
                 let ret = dfg.new_value().ret(Some(expr));
                 layout.push_inst(ret);
@@ -676,13 +697,13 @@ impl ast::Stmt {
             }
             ast::Stmt::Expr { expr } => {
                 if let Some(expr) = expr {
-                    expr.build_ir_in(symtable, layout)?;
+                    expr.build_ir_in(symtable, layout, None)?;
                 }
                 Ok(false.into())
             }
             ast::Stmt::Block { block } => block.node.build_ir_in(symtable, context, layout),
             ast::Stmt::If { cond, then, els } => {
-                let cond = cond.build_ir_in(symtable, layout)?;
+                let cond = cond.build_ir_in(symtable, layout, Some(VType::Int))?;
 
                 let then_bb = layout.new_bb(None);
                 let els_bb = layout.new_bb(None);
@@ -735,7 +756,7 @@ impl ast::Stmt {
                 // Safety: `cond_bb` is empty, and `into_cond` is the last instruction.
                 layout.switch_bb(cond_bb);
 
-                let cond = cond.build_ir_in(symtable, layout)?;
+                let cond = cond.build_ir_in(symtable, layout, Some(VType::Int))?;
                 let branch = layout.dfg_mut().new_value().branch(cond, body_bb, next_bb);
                 layout.push_inst(branch);
 
@@ -785,10 +806,30 @@ impl ast::Stmt {
 impl ast::Expr {
     /// Build IR from AST in a BasicBlock, return the handle of the result
     /// value.
-    pub fn build_ir_in(self, symtable: &SymbolTable, layout: &mut LayoutBuilder) -> Result<Value> {
+    pub fn build_ir_in(
+        self,
+        symtable: &SymbolTable,
+        layout: &mut LayoutBuilder,
+        expected_type: Option<VType>,
+    ) -> Result<Value> {
+        let span = self.span().into();
+        match self {
+            ast::Expr::Unary { .. } | ast::Expr::Binary { .. } | ast::Expr::Number(_) => {
+                if let Some(expected_type) = &expected_type {
+                    if !expected_type.is_int() {
+                        Err(CompileError::TypeError {
+                            span,
+                            expected: expected_type.to_string(),
+                            found: "int".to_string(),
+                        })?;
+                    }
+                }
+            }
+            _ => {}
+        }
         Ok(match self {
             ast::Expr::Unary { op, expr } => {
-                let expr = expr.build_ir_in(symtable, layout)?;
+                let expr = expr.build_ir_in(symtable, layout, Some(VType::Int))?;
                 match op.node {
                     ast::UnaryOp::Pos => expr,
                     ast::UnaryOp::Neg => {
@@ -808,7 +849,7 @@ impl ast::Expr {
             ast::Expr::Binary { op, lhs, rhs } => {
                 match op.node {
                     ast::BinaryOp::LAnd => {
-                        let lhs = lhs.build_ir_in(symtable, layout)?;
+                        let lhs = lhs.build_ir_in(symtable, layout, Some(VType::Int))?;
                         let dfg = layout.dfg_mut();
                         let zero = dfg.new_value().integer(0);
                         let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
@@ -823,7 +864,7 @@ impl ast::Expr {
                         layout.push_insts([lhs, result, branch]);
 
                         layout.with_bb(true_bb, |layout| {
-                            let rhs = rhs.build_ir_in(symtable, layout)?;
+                            let rhs = rhs.build_ir_in(symtable, layout, Some(VType::Int))?;
                             let dfg = layout.dfg_mut();
                             let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
                             let store = dfg.new_value().store(rhs, result);
@@ -847,7 +888,7 @@ impl ast::Expr {
                         layout.push_inst(result)
                     }
                     ast::BinaryOp::LOr => {
-                        let lhs = lhs.build_ir_in(symtable, layout)?;
+                        let lhs = lhs.build_ir_in(symtable, layout, Some(VType::Int))?;
                         let dfg = layout.dfg_mut();
                         let zero = dfg.new_value().integer(0);
                         let lhs = dfg.new_value().binary(BinaryOp::NotEq, lhs, zero);
@@ -870,7 +911,7 @@ impl ast::Expr {
                         })?;
 
                         layout.with_bb(false_bb, |layout| {
-                            let rhs = rhs.build_ir_in(symtable, layout)?;
+                            let rhs = rhs.build_ir_in(symtable, layout, Some(VType::Int))?;
                             let dfg = layout.dfg_mut();
                             let rhs = dfg.new_value().binary(BinaryOp::NotEq, rhs, zero);
                             let store = dfg.new_value().store(rhs, result);
@@ -886,8 +927,8 @@ impl ast::Expr {
                         layout.push_inst(result)
                     }
                     _ => {
-                        let lhs = lhs.build_ir_in(symtable, layout)?;
-                        let rhs = rhs.build_ir_in(symtable, layout)?;
+                        let lhs = lhs.build_ir_in(symtable, layout, Some(VType::Int))?;
+                        let rhs = rhs.build_ir_in(symtable, layout, Some(VType::Int))?;
                         let dfg = layout.dfg_mut();
                         let op = match op.node {
                             ast::BinaryOp::Add => BinaryOp::Add,
@@ -913,23 +954,56 @@ impl ast::Expr {
                 let num = dfg.new_value().integer(num.node);
                 num
             }
-            ast::Expr::LVal(lval) => lval.build_rval(symtable, layout)?,
+            ast::Expr::LVal(lval) => {
+                let (var, ty) = lval.build_ir_in(symtable, layout)?;
+                if let Some(expected_type) = &expected_type {
+                    match ty.cast(expected_type) {
+                        types::TypeCast::Noop => {}
+                        types::TypeCast::ArrayToPtr => {
+                            let dfg = layout.dfg_mut();
+                            let index = dfg.new_value().integer(0);
+                            let ptr = dfg.new_value().get_elem_ptr(var, index);
+                            return Ok(layout.push_inst(ptr));
+                        }
+                        types::TypeCast::Fail => Err(CompileError::TypeError {
+                            span,
+                            expected: expected_type.to_string(),
+                            found: ty.to_string(),
+                        })?,
+                    }
+                }
+                let load = layout.dfg_mut().new_value().load(var);
+                layout.push_inst(load)
+            }
             ast::Expr::Call(call) => {
                 let span = call.node.ident.span().into();
                 let func = symtable
                     .get_var(&call.node.ident.node)
                     .ok_or(CompileError::VariableNotFound { span })?;
-                let func = match func {
+                let (func, params_ty, ret_ty) = match func {
                     Symbol::Const(_) => Err(CompileError::ConstNotAFunction { span })?,
                     Symbol::Var(_, _, _) => Err(CompileError::VarNotAFunction { span })?,
-                    Symbol::Func(func) => *func,
+                    Symbol::Func(func, params_ty, ret_ty) => {
+                        (*func, params_ty.clone(), ret_ty.clone())
+                    }
                 };
+
+                if let Some(expected_type) = &expected_type {
+                    if &ret_ty != expected_type {
+                        Err(CompileError::TypeError {
+                            span,
+                            expected: expected_type.to_string(),
+                            found: ret_ty.to_string(),
+                        })?;
+                    }
+                }
 
                 let args = call
                     .node
                     .args
                     .into_iter()
-                    .map(|arg| arg.build_ir_in(symtable, layout))
+                    .zip(params_ty.into_iter())
+                    .map(|(arg, ty)| arg.build_ir_in(symtable, layout, Some(ty)))
                     .collect::<Result<Vec<_>>>()?;
 
                 let dfg = layout.dfg_mut();
@@ -980,7 +1054,7 @@ impl ast::Expr {
                 match var {
                     Symbol::Const(num) => *num,
                     Symbol::Var(_, _, _) => Err(CompileError::NonConstantExpression { span })?,
-                    Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
+                    Symbol::Func(_, _, _) => Err(CompileError::FuncAsVar { span })?,
                 }
             }
             ast::Expr::Call(_) => Err(CompileError::NonConstantExpression {
@@ -992,56 +1066,56 @@ impl ast::Expr {
 
 impl Span<ast::LVal> {
     /// Build IR for a left value.
-    pub fn build_lval(self, symtable: &SymbolTable, layout: &mut LayoutBuilder) -> Result<Value> {
+    pub fn build_ir_in(
+        self,
+        symtable: &SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<(Value, VType)> {
         let span = self.span().into();
         let var = symtable
             .get_var(&self.node.ident.node)
             .ok_or(CompileError::VariableNotFound { span })?;
-        let mut var = match var {
+        let (var, ty) = match var {
             Symbol::Const(_) | Symbol::Var(_, _, true) => {
                 Err(CompileError::AssignToConst { span })?
             }
-            Symbol::Var(var, _, false) => *var,
-            Symbol::Func(_) => Err(CompileError::FuncAsVar { span })?,
+            Symbol::Var(var, ty, false) => (*var, ty.clone()),
+            Symbol::Func(_, _, _) => Err(CompileError::FuncAsVar { span })?,
         };
-        for index in self.node.indices {
-            let index = index.build_ir_in(symtable, layout)?;
-            let ptr = layout.dfg_mut().new_value().get_elem_ptr(var, index);
-            var = layout.push_inst(ptr);
-        }
-        Ok(var)
+        let (var, ty) = self.indices(var, ty, symtable, layout)?;
+        Ok((var, ty))
     }
 
-    /// Build IR for a right value.
-    pub fn build_rval(self, symtable: &SymbolTable, layout: &mut LayoutBuilder) -> Result<Value> {
-        let name_span = self.node.ident.span().into();
-        let var = symtable
-            .get_var(&self.node.ident.node)
-            .ok_or(CompileError::VariableNotFound { span: name_span })?;
-        match var {
-            Symbol::Const(num) => {
-                let dfg = layout.dfg_mut();
-                let num = dfg.new_value().integer(*num);
-                if !self.node.indices.is_empty() {
-                    Err(CompileError::TypeError {
-                        span: self.span().into(),
-                        expected: "int".to_string(),
-                        found: "int[]".to_string(),
-                    })?;
-                }
-                Ok(num)
-            }
-            Symbol::Var(mut var, _, _) => {
-                for index in self.node.indices {
-                    let index = index.build_ir_in(symtable, layout)?;
+    fn indices(
+        self,
+        mut var: Value,
+        mut ty: VType,
+        symtable: &SymbolTable,
+        layout: &mut LayoutBuilder,
+    ) -> Result<(Value, VType)> {
+        let span = self.span().into();
+        for index in self.node.indices {
+            let index = index.build_ir_in(symtable, layout, Some(VType::Int))?;
+            let (ptr, new_ty) = match ty.to_indexed() {
+                IndexCast::Array(new_ty) => {
                     let ptr = layout.dfg_mut().new_value().get_elem_ptr(var, index);
-                    var = layout.push_inst(ptr);
+                    (ptr, new_ty)
                 }
-                let dfg = layout.dfg_mut();
-                let load = dfg.new_value().load(var);
-                Ok(layout.push_inst(load))
-            }
-            Symbol::Func(_) => Err(CompileError::FuncAsVar { span: name_span })?,
+                IndexCast::Ptr(new_ty) => {
+                    let ptr = layout.dfg_mut().new_value().load(var);
+                    layout.push_inst(ptr);
+                    let ptr = layout.dfg_mut().new_value().get_ptr(ptr, index);
+                    (ptr, new_ty)
+                }
+                IndexCast::Fail => Err(CompileError::TypeError {
+                    span,
+                    expected: format!("{}[]", ty),
+                    found: ty.to_string(),
+                })?,
+            };
+            var = layout.push_inst(ptr);
+            ty = new_ty;
         }
+        Ok((var, ty))
     }
 }

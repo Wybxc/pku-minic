@@ -105,6 +105,8 @@ _Arguments_:
 }
 
 fn main() -> Result<()> {
+    miette::set_panic_hook();
+
     // Parse command line arguments
     let mut args = Args::parse();
 
