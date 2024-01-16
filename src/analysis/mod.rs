@@ -3,7 +3,6 @@
 use std::{cell::OnceCell, collections::HashMap, rc::Rc};
 
 use koopa::ir::{Function, Program};
-use miette::Result;
 #[allow(unused_imports)]
 use nolog::*;
 
@@ -26,6 +25,7 @@ pub mod localvar;
 pub mod register;
 
 /// Program analyser.
+#[allow(dead_code)]
 pub struct Analyzer<'a> {
     program: &'a Program,
     metadata: &'a ProgramMetadata,
@@ -169,9 +169,9 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Analyse frame size of a function.
-    pub fn analyze_frame(&mut self, func: Function) -> Result<Rc<Frame>> {
+    pub fn analyze_frame(&mut self, func: Function) -> Rc<Frame> {
         if self.frame_cache.contains_key(&func) {
-            return Ok(self.frame_cache[&func].clone());
+            return self.frame_cache[&func].clone();
         }
         trace!(->[0] "MGR " => "Analyzing frame size of {:?}", func);
         let local_vars = self.analyze_local_vars(func);
@@ -181,10 +181,9 @@ impl<'a> Analyzer<'a> {
             local_vars.as_ref(),
             reg_alloc.as_ref(),
             function_calls.as_ref(),
-            &self.metadata.functions[&func],
-        )?;
+        );
         let frame = Rc::new(frame);
         self.frame_cache.insert(func, frame.clone());
-        Ok(frame)
+        frame
     }
 }

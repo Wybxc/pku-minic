@@ -432,67 +432,67 @@ pub enum Inst {
 impl Display for Inst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Inst::Li(rd, imm) => write!(f, "li {}, {}", rd, imm),
-            Inst::Mv(rd, rs) => write!(f, "mv {}, {}", rd, rs),
-            Inst::Add(rd, rs1, rs2) => write!(f, "add {}, {}, {}", rd, rs1, rs2),
-            Inst::Addi(rd, rs, imm) => write!(f, "addi {}, {}, {}", rd, rs, imm),
-            Inst::Sub(rd, rs1, rs2) => write!(f, "sub {}, {}, {}", rd, rs1, rs2),
-            Inst::Neg(rd, rs) => write!(f, "neg {}, {}", rd, rs),
-            Inst::Mul(rd, rs1, rs2) => write!(f, "mul {}, {}, {}", rd, rs1, rs2),
-            Inst::Mulh(rd, rs1, rs2) => write!(f, "mulh {}, {}, {}", rd, rs1, rs2),
-            Inst::Div(rd, rs1, rs2) => write!(f, "div {}, {}, {}", rd, rs1, rs2),
-            Inst::Divu(rd, rs1, rs2) => write!(f, "divu {}, {}, {}", rd, rs1, rs2),
-            Inst::Rem(rd, rs1, rs2) => write!(f, "rem {}, {}, {}", rd, rs1, rs2),
-            Inst::Remu(rd, rs1, rs2) => write!(f, "remu {}, {}, {}", rd, rs1, rs2),
-            Inst::Not(rd, rs) => write!(f, "not {}, {}", rd, rs),
-            Inst::And(rd, rs1, rs2) => write!(f, "and {}, {}, {}", rd, rs1, rs2),
-            Inst::Andi(rd, rs, imm) => write!(f, "andi {}, {}, {}", rd, rs, imm),
-            Inst::Or(rd, rs1, rs2) => write!(f, "or {}, {}, {}", rd, rs1, rs2),
-            Inst::Ori(rd, rs, imm) => write!(f, "ori {}, {}, {}", rd, rs, imm),
-            Inst::Xor(rd, rs1, rs2) => write!(f, "xor {}, {}, {}", rd, rs1, rs2),
-            Inst::Xori(rd, rs, imm) => write!(f, "xori {}, {}, {}", rd, rs, imm),
-            Inst::Sll(rd, rs1, rs2) => write!(f, "sll {}, {}, {}", rd, rs1, rs2),
-            Inst::Slli(rd, rs, imm) => write!(f, "slli {}, {}, {}", rd, rs, imm),
-            Inst::Sra(rd, rs1, rs2) => write!(f, "sra {}, {}, {}", rd, rs1, rs2),
-            Inst::Srai(rd, rs, imm) => write!(f, "srai {}, {}, {}", rd, rs, imm),
-            Inst::Srl(rd, rs1, rs2) => write!(f, "srl {}, {}, {}", rd, rs1, rs2),
-            Inst::Srli(rd, rs, imm) => write!(f, "srli {}, {}, {}", rd, rs, imm),
-            Inst::Slt(rd, rs1, rs2) => write!(f, "slt {}, {}, {}", rd, rs1, rs2),
-            Inst::Sltu(rd, rs1, rs2) => write!(f, "sltu {}, {}, {}", rd, rs1, rs2),
-            Inst::Slti(rd, rs, imm) => write!(f, "slti {}, {}, {}", rd, rs, imm),
-            Inst::Sltiu(rd, rs, imm) => write!(f, "sltiu {}, {}, {}", rd, rs, imm),
-            Inst::Seqz(rd, rs) => write!(f, "seqz {}, {}", rd, rs),
-            Inst::Snez(rd, rs) => write!(f, "snez {}, {}", rd, rs),
-            Inst::Sltz(rd, rs) => write!(f, "sltz {}, {}", rd, rs),
-            Inst::Sgtz(rd, rs) => write!(f, "sgtz {}, {}", rd, rs),
-            Inst::Lb(rd, imm, rs) => write!(f, "lb {}, {}({})", rd, imm, rs),
-            Inst::Lh(rd, imm, rs) => write!(f, "lh {}, {}({})", rd, imm, rs),
-            Inst::Lw(rd, imm, rs) => write!(f, "lw {}, {}({})", rd, imm, rs),
-            Inst::Sb(rd, imm, rs) => write!(f, "sb {}, {}({})", rd, imm, rs),
-            Inst::Sh(rd, imm, rs) => write!(f, "sh {}, {}({})", rd, imm, rs),
-            Inst::Sw(rd, imm, rs) => write!(f, "sw {}, {}({})", rd, imm, rs),
-            Inst::Lbu(rd, imm, rs) => write!(f, "lbu {}, {}({})", rd, imm, rs),
-            Inst::Lhu(rd, imm, rs) => write!(f, "lhu {}, {}({})", rd, imm, rs),
-            Inst::La(rd, global) => write!(f, "la {}, {}", rd, global.name().unwrap_or_default()),
+            Inst::Li(rd, imm) => write!(f, "li\t{}, {}", rd, imm),
+            Inst::Mv(rd, rs) => write!(f, "mv\t{}, {}", rd, rs),
+            Inst::Add(rd, rs1, rs2) => write!(f, "add\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Addi(rd, rs, imm) => write!(f, "addi\t{}, {}, {}", rd, rs, imm),
+            Inst::Sub(rd, rs1, rs2) => write!(f, "sub\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Neg(rd, rs) => write!(f, "neg\t{}, {}", rd, rs),
+            Inst::Mul(rd, rs1, rs2) => write!(f, "mul\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Mulh(rd, rs1, rs2) => write!(f, "mulh\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Div(rd, rs1, rs2) => write!(f, "div\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Divu(rd, rs1, rs2) => write!(f, "divu\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Rem(rd, rs1, rs2) => write!(f, "rem\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Remu(rd, rs1, rs2) => write!(f, "remu\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Not(rd, rs) => write!(f, "not\t{}, {}", rd, rs),
+            Inst::And(rd, rs1, rs2) => write!(f, "and\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Andi(rd, rs, imm) => write!(f, "andi\t{}, {}, {}", rd, rs, imm),
+            Inst::Or(rd, rs1, rs2) => write!(f, "or\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Ori(rd, rs, imm) => write!(f, "ori\t{}, {}, {}", rd, rs, imm),
+            Inst::Xor(rd, rs1, rs2) => write!(f, "xor\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Xori(rd, rs, imm) => write!(f, "xori\t{}, {}, {}", rd, rs, imm),
+            Inst::Sll(rd, rs1, rs2) => write!(f, "sll\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Slli(rd, rs, imm) => write!(f, "slli\t{}, {}, {}", rd, rs, imm),
+            Inst::Sra(rd, rs1, rs2) => write!(f, "sra\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Srai(rd, rs, imm) => write!(f, "srai\t{}, {}, {}", rd, rs, imm),
+            Inst::Srl(rd, rs1, rs2) => write!(f, "srl\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Srli(rd, rs, imm) => write!(f, "srli\t{}, {}, {}", rd, rs, imm),
+            Inst::Slt(rd, rs1, rs2) => write!(f, "slt\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Sltu(rd, rs1, rs2) => write!(f, "sltu\t{}, {}, {}", rd, rs1, rs2),
+            Inst::Slti(rd, rs, imm) => write!(f, "slti\t{}, {}, {}", rd, rs, imm),
+            Inst::Sltiu(rd, rs, imm) => write!(f, "sltiu\t{}, {}, {}", rd, rs, imm),
+            Inst::Seqz(rd, rs) => write!(f, "seqz\t{}, {}", rd, rs),
+            Inst::Snez(rd, rs) => write!(f, "snez\t{}, {}", rd, rs),
+            Inst::Sltz(rd, rs) => write!(f, "sltz\t{}, {}", rd, rs),
+            Inst::Sgtz(rd, rs) => write!(f, "sgtz\t{}, {}", rd, rs),
+            Inst::Lb(rd, imm, rs) => write!(f, "lb\t{}, {}({})", rd, imm, rs),
+            Inst::Lh(rd, imm, rs) => write!(f, "lh\t{}, {}({})", rd, imm, rs),
+            Inst::Lw(rd, imm, rs) => write!(f, "lw\t{}, {}({})", rd, imm, rs),
+            Inst::Sb(rd, imm, rs) => write!(f, "sb\t{}, {}({})", rd, imm, rs),
+            Inst::Sh(rd, imm, rs) => write!(f, "sh\t{}, {}({})", rd, imm, rs),
+            Inst::Sw(rd, imm, rs) => write!(f, "sw\t{}, {}({})", rd, imm, rs),
+            Inst::Lbu(rd, imm, rs) => write!(f, "lbu\t{}, {}({})", rd, imm, rs),
+            Inst::Lhu(rd, imm, rs) => write!(f, "lhu\t{}, {}({})", rd, imm, rs),
+            Inst::La(rd, global) => write!(f, "la\t{}, {}", rd, global.name().unwrap_or_default()),
             Inst::Ret => write!(f, "ret"),
-            Inst::J(label) => write!(f, "j {}", label),
-            Inst::Call(func) => write!(f, "call {}", func.name().unwrap_or_default()),
-            Inst::Beq(rs1, rs2, label) => write!(f, "beq {}, {}, {}", rs1, rs2, label),
-            Inst::Beqz(rs, label) => write!(f, "beqz {}, {}", rs, label),
-            Inst::Bge(rs1, rs2, label) => write!(f, "bge {}, {}, {}", rs1, rs2, label),
-            Inst::Bgeu(rs1, rs2, label) => write!(f, "bgeu {}, {}, {}", rs1, rs2, label),
-            Inst::Bgez(rs, label) => write!(f, "bgez {}, {}", rs, label),
-            Inst::Bgt(rs1, rs2, label) => write!(f, "bgt {}, {}, {}", rs1, rs2, label),
-            Inst::Bgtu(rs1, rs2, label) => write!(f, "bgtu {}, {}, {}", rs1, rs2, label),
-            Inst::Bgtz(rs, label) => write!(f, "bgtz {}, {}", rs, label),
-            Inst::Ble(rs1, rs2, label) => write!(f, "ble {}, {}, {}", rs1, rs2, label),
-            Inst::Bleu(rs1, rs2, label) => write!(f, "bleu {}, {}, {}", rs1, rs2, label),
-            Inst::Blez(rs, label) => write!(f, "blez {}, {}", rs, label),
-            Inst::Blt(rs1, rs2, label) => write!(f, "blt {}, {}, {}", rs1, rs2, label),
-            Inst::Bltu(rs1, rs2, label) => write!(f, "bltu {}, {}, {}", rs1, rs2, label),
-            Inst::Bltz(rs, label) => write!(f, "bltz {}, {}", rs, label),
-            Inst::Bne(rs1, rs2, label) => write!(f, "bne {}, {}, {}", rs1, rs2, label),
-            Inst::Bnez(rs, label) => write!(f, "bnez {}, {}", rs, label),
+            Inst::J(label) => write!(f, "j\t{}", label),
+            Inst::Call(func) => write!(f, "call\t{}", func.name().unwrap_or_default()),
+            Inst::Beq(rs1, rs2, label) => write!(f, "beq\t{}, {}, {}", rs1, rs2, label),
+            Inst::Beqz(rs, label) => write!(f, "beqz\t{}, {}", rs, label),
+            Inst::Bge(rs1, rs2, label) => write!(f, "bge\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bgeu(rs1, rs2, label) => write!(f, "bgeu\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bgez(rs, label) => write!(f, "bgez\t{}, {}", rs, label),
+            Inst::Bgt(rs1, rs2, label) => write!(f, "bgt\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bgtu(rs1, rs2, label) => write!(f, "bgtu\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bgtz(rs, label) => write!(f, "bgtz\t{}, {}", rs, label),
+            Inst::Ble(rs1, rs2, label) => write!(f, "ble\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bleu(rs1, rs2, label) => write!(f, "bleu\t{}, {}, {}", rs1, rs2, label),
+            Inst::Blez(rs, label) => write!(f, "blez\t{}, {}", rs, label),
+            Inst::Blt(rs1, rs2, label) => write!(f, "blt\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bltu(rs1, rs2, label) => write!(f, "bltu\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bltz(rs, label) => write!(f, "bltz\t{}, {}", rs, label),
+            Inst::Bne(rs1, rs2, label) => write!(f, "bne\t{}, {}, {}", rs1, rs2, label),
+            Inst::Bnez(rs, label) => write!(f, "bnez\t{}, {}", rs, label),
             Inst::Nop => write!(f, "nop"),
         }
     }
@@ -643,6 +643,24 @@ impl Inst {
 
 utils::declare_u32_id!(InstId);
 
+thread_local! {
+    static INST_ANNOTATIONS: RefCell<HashMap<InstId, String>> = RefCell::new(HashMap::new());
+}
+
+impl InstId {
+    /// Set the annotation of the instruction.
+    pub fn set_annotation(&self, annotation: impl Into<String>) {
+        INST_ANNOTATIONS.with(|annotations| {
+            annotations.borrow_mut().insert(*self, annotation.into());
+        });
+    }
+
+    /// Get the annotation of the instruction.
+    pub fn annotation(&self) -> Option<String> {
+        INST_ANNOTATIONS.with(|annotations| annotations.borrow().get(self).cloned())
+    }
+}
+
 /// Node in the instruction list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct InstNode {
@@ -736,8 +754,12 @@ impl Default for Block {
 
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for node in self.instructions.nodes() {
-            writeln!(f, "    {}", node.inst)?;
+        for (id, node) in &self.instructions {
+            write!(f, " \t{}", node.inst)?;
+            if let Some(annotation) = id.annotation() {
+                write!(f, "\t# {}", annotation)?;
+            }
+            writeln!(f)?;
         }
         Ok(())
     }

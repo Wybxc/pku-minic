@@ -62,7 +62,7 @@ impl Spanned for TopLevelItem {
 pub struct FuncDef {
     pub func_type: Span<BType>,
     pub ident: Span<String>,
-    pub params: Vec<FuncParam>,
+    pub params: Vec<Span<FuncParam>>,
     pub block: Span<Block>,
 }
 
@@ -85,17 +85,10 @@ impl Spanned for FuncDef {
 pub struct FuncParam {
     pub ty: Span<BType>,
     pub ident: Span<String>,
+    pub indices: Option<Vec<ConstExpr>>,
 }
 
-impl Spanned for FuncParam {
-    fn start_pos(&self) -> usize {
-        self.ty.start_pos()
-    }
-
-    fn end_pos(&self) -> usize {
-        self.ident.end_pos()
-    }
-}
+impl NonSpanned for FuncParam {}
 
 /// Block
 ///
@@ -179,12 +172,13 @@ impl NonSpanned for ConstDecl {}
 /// Constant Definition
 ///
 /// ```text
-/// ConstDef ::= IDENT "=" ConstExpr
+/// ConstDef ::= IDENT ["[" ConstExp "]"] "=" InitVal
 /// ```
 #[derive(Debug, Clone)]
 pub struct ConstDef {
     pub ident: Span<String>,
-    pub expr: ConstExpr,
+    pub indices: Vec<ConstExpr>,
+    pub init: Span<InitVal>,
 }
 
 impl Spanned for ConstDef {
@@ -193,7 +187,7 @@ impl Spanned for ConstDef {
     }
 
     fn end_pos(&self) -> usize {
-        self.expr.end_pos()
+        self.init.end_pos()
     }
 }
 
@@ -205,7 +199,7 @@ impl Spanned for ConstDef {
 #[derive(Debug, Clone)]
 pub struct VarDecl {
     pub ty: Span<BType>,
-    pub defs: Vec<VarDef>,
+    pub defs: Vec<Span<VarDef>>,
 }
 
 impl NonSpanned for VarDecl {}
@@ -213,46 +207,31 @@ impl NonSpanned for VarDecl {}
 /// Variable Definition
 ///
 /// ```text
-/// VarDef ::= IDENT | IDENT "=" InitVal
+/// VarDef ::= IDENT ["[" ConstExp "]"]
+///          | IDENT ["[" ConstExp "]"] "=" InitVal
 /// ```
 #[derive(Debug, Clone)]
 pub struct VarDef {
     pub ident: Span<String>,
-    pub init: Option<InitVal>,
+    pub indices: Vec<ConstExpr>,
+    pub init: Option<Span<InitVal>>,
 }
 
-impl Spanned for VarDef {
-    fn start_pos(&self) -> usize {
-        self.ident.start_pos()
-    }
-
-    fn end_pos(&self) -> usize {
-        match &self.init {
-            Some(init) => init.end_pos(),
-            None => self.ident.end_pos(),
-        }
-    }
-}
+impl NonSpanned for VarDef {}
 
 /// Initial Value
 ///
 /// ```text
 /// InitVal ::= Expr
+///           | "{" [Expr {"," Expr}] "}"
 /// ```
 #[derive(Debug, Clone)]
-pub struct InitVal {
-    pub expr: Expr,
+pub enum InitVal {
+    Expr(Expr),
+    InitList(Vec<Span<InitVal>>),
 }
 
-impl Spanned for InitVal {
-    fn start_pos(&self) -> usize {
-        self.expr.start_pos()
-    }
-
-    fn end_pos(&self) -> usize {
-        self.expr.end_pos()
-    }
-}
+impl NonSpanned for InitVal {}
 
 /// Basic Type
 ///
@@ -306,7 +285,7 @@ impl Spanned for ConstExpr {
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Assign {
-        ident: Span<String>,
+        lval: Span<LVal>,
         expr: Expr,
     },
     Expr {
@@ -326,9 +305,7 @@ pub enum Stmt {
     },
     Break(Span<()>),
     Continue(Span<()>),
-    Return {
-        expr: Expr,
-    },
+    Return(Option<Expr>),
 }
 
 impl NonSpanned for Stmt {}
@@ -337,7 +314,7 @@ impl NonSpanned for Stmt {}
 ///
 /// ```text
 /// Expr          ::= LOrExp;
-/// LVal          ::= IDENT;
+/// LVal          ::= IDENT ["[" Expr "]"];
 /// PrimaryExp    ::= "(" Expr ")" | LVal | Number;
 /// Number        ::= INT_CONST;
 /// UnaryExp      ::= PrimaryExp | UnaryOp UnaryExp | CallExp;
@@ -360,7 +337,7 @@ pub enum Expr {
         rhs: Box<Expr>,
     },
     Number(Span<i32>),
-    LVar(Span<String>),
+    LVal(Span<LVal>),
     Call(Span<CallExpr>),
 }
 
@@ -370,7 +347,7 @@ impl Spanned for Expr {
             Expr::Unary { op, .. } => op.start_pos(),
             Expr::Binary { lhs, .. } => lhs.start_pos(),
             Expr::Number(n) => n.start_pos(),
-            Expr::LVar(ident) => ident.start_pos(),
+            Expr::LVal(ident) => ident.start_pos(),
             Expr::Call(call) => call.start_pos(),
         }
     }
@@ -380,11 +357,24 @@ impl Spanned for Expr {
             Expr::Unary { expr, .. } => expr.end_pos(),
             Expr::Binary { rhs, .. } => rhs.end_pos(),
             Expr::Number(n) => n.end_pos(),
-            Expr::LVar(ident) => ident.end_pos(),
+            Expr::LVal(ident) => ident.end_pos(),
             Expr::Call(call) => call.end_pos(),
         }
     }
 }
+
+/// LValue
+///
+/// ```text
+/// LVal ::= IDENT ["[" Expr "]"]
+/// ```
+#[derive(Debug, Clone)]
+pub struct LVal {
+    pub ident: Span<String>,
+    pub indices: Vec<Expr>,
+}
+
+impl NonSpanned for LVal {}
 
 /// Function Call Expression
 ///

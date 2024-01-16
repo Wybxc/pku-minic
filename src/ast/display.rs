@@ -94,7 +94,12 @@ impl Display for BType {
 
 impl Display for ConstDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} = {}", self.ident, self.expr)
+        // write!(f, "{} = {}", self.ident, self.expr)
+        write!(f, "{}", self.ident)?;
+        for index in &self.indices {
+            write!(f, "[{}]", index)?;
+        }
+        write!(f, " = {}", self.init)
     }
 }
 
@@ -107,6 +112,9 @@ impl Display for ConstExpr {
 impl Display for VarDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.ident)?;
+        for index in &self.indices {
+            write!(f, "[{}]", index)?;
+        }
         if let Some(init) = &self.init {
             write!(f, " = {}", init)?;
         }
@@ -116,15 +124,27 @@ impl Display for VarDef {
 
 impl Display for InitVal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.expr)
+        match self {
+            InitVal::Expr(expr) => write!(f, "{}", expr),
+            InitVal::InitList(init_list) => {
+                write!(f, "{{")?;
+                for (i, init) in init_list.iter().enumerate() {
+                    if i != 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", init)?;
+                }
+                write!(f, "}}")
+            }
+        }
     }
 }
 
 impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Stmt::Assign { ident, expr } => {
-                writeln!(f, "{} = {};", ident, expr)
+            Stmt::Assign { lval, expr } => {
+                writeln!(f, "{} = {};", lval, expr)
             }
             Stmt::Expr { expr } => {
                 if let Some(expr) = expr {
@@ -154,8 +174,11 @@ impl Display for Stmt {
             Stmt::Continue(_) => {
                 writeln!(f, "continue;")
             }
-            Stmt::Return { expr } => {
+            Stmt::Return(Some(expr)) => {
                 writeln!(f, "return {};", expr)
+            }
+            Stmt::Return(None) => {
+                writeln!(f, "return;")
             }
         }
     }
@@ -164,7 +187,7 @@ impl Display for Stmt {
 impl Expr {
     fn precedence(&self) -> u32 {
         match self {
-            Expr::Number(_) | Expr::LVar(_) | Expr::Call(_) => 0,
+            Expr::Number(_) | Expr::LVal(_) | Expr::Call(_) => 0,
             Expr::Unary { .. } => 1,
             Expr::Binary { op, .. } => match op.node {
                 BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => 2,
@@ -184,7 +207,7 @@ impl Expr {
         }
         match self {
             Expr::Number(expr) => write!(f, "{}", expr),
-            Expr::LVar(ident) => write!(f, "{}", ident),
+            Expr::LVal(ident) => write!(f, "{}", ident.node),
             Expr::Call(call) => write!(f, "{}", call),
             Expr::Unary { op, expr } => {
                 write!(f, "{}", op)?;
@@ -212,6 +235,16 @@ impl Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_with_prec(f, 15)
+    }
+}
+
+impl Display for LVal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.ident)?;
+        for index in &self.indices {
+            write!(f, "[{}]", index)?;
+        }
+        Ok(())
     }
 }
 

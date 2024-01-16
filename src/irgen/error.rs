@@ -110,4 +110,31 @@ pub enum CompileError {
         #[label("is a variable")]
         span: SourceSpan,
     },
+
+    /// type error
+    #[error("type error")]
+    #[diagnostic(code(minic::type_error))]
+    TypeError {
+        #[label("expected {expected}, found {found}")]
+        span: SourceSpan,
+        expected: String,
+        found: String,
+    },
+
+    /// invalid array size
+    #[error("invalid array size")]
+    #[diagnostic(code(minic::invalid_array_size))]
+    InvalidArraySize {
+        #[label("invalid array size: {size}")]
+        span: SourceSpan,
+        size: i32,
+    },
+
+    /// invalid initializer
+    #[error("invalid initializer")]
+    #[diagnostic(code(minic::invalid_initializer))]
+    InvalidInitializer {
+        #[label("invalid initializer")]
+        span: SourceSpan,
+    },
 }

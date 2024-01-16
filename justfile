@@ -1,7 +1,7 @@
 export RUST_BACKTRACE := "1"
 
 test_c := "hello.c"
-level := "lv8"
+level := "lv9"
 
 test_koopa := replace_regex(test_c, '\.c$', ".kp")
 test_riscv := replace_regex(test_c, '\.c$', ".s")

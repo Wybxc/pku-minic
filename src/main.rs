@@ -105,6 +105,8 @@ _Arguments_:
 }
 
 fn main() -> Result<()> {
+    miette::set_panic_hook();
+
     // Parse command line arguments
     let mut args = Args::parse();
 
@@ -114,6 +116,9 @@ fn main() -> Result<()> {
 
     // Optimization level
     let opt_level = args.opt_level;
+
+    // Set pointer size to 4 bytes
+    koopa::ir::Type::set_ptr_size(4);
 
     // Generate output
     match args.mode {

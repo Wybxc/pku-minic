@@ -33,6 +33,9 @@ impl<const N: usize> Imm<N> {
 
     /// Maximum value of the immediate.
     pub const MAX: i32 = (1 << (N - 1)) - 1;
+
+    /// Zero value of the immediate.
+    pub const ZERO: Self = Self(0);
 }
 
 impl Neg for Imm<12> {

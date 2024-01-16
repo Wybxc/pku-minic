@@ -28,7 +28,7 @@ FuncDef: FuncDef = {
   }
 };
 
-FuncParams: Vec<FuncParam> = {
+FuncParams: Vec<Span<FuncParam>> = {
   <param: FuncParam> => vec![param],
   <params: FuncParams> "," <param: FuncParam> => {
     let mut params = params;
@@ -37,8 +37,11 @@ FuncParams: Vec<FuncParam> = {
   },
 };
 
-FuncParam: FuncParam = {
-  <ty: BType> <ident: Ident> => FuncParam { ty, ident },
+FuncParam: Span<FuncParam> = {
+  <start:@L> <ty: BType> <ident: Ident> <end:@R> => FuncParam { ty, ident, indices: None }.into_span(start, end),
+  <start:@L> <ty: BType> <ident: Ident> "[" "]" <indices: ("[" <ConstExpr> "]")*> <end:@R> => {
+    FuncParam { ty, ident, indices: Some(indices) }.into_span(start, end)
+  },
 };
 
 Block: Span<Block> = <start:@L> "{" <items: BlockItem*> "}" <end:@R> => {
@@ -68,7 +71,7 @@ ConstDecl: Span<ConstDecl> = {
 }
 
 ConstDef: ConstDef = {
-  <ident: Ident> "=" <expr: ConstExpr> => ConstDef { <> },
+  <ident: Ident> <indices: ("[" <ConstExpr> "]")*> "=" <init: InitVal> => ConstDef { ident, indices, init },
 };
 
 ConstExpr: ConstExpr = <expr: Expr> => ConstExpr { <> };
@@ -80,13 +83,17 @@ VarDecl: Span<VarDecl> = {
   },
 }
 
-VarDef: VarDef = {
-  <ident: Ident> => VarDef { ident, init: None },
-  <ident: Ident> "=" <init: InitVal> => VarDef { ident, init: Some(init) },
+VarDef: Span<VarDef> = {
+  <start:@L> <ident: Ident> <indices: ("[" <ConstExpr> "]")*> <end:@R> => VarDef { ident, indices, init: None }.into_span(start, end),
+  <start:@L> <ident: Ident> <indices: ("[" <ConstExpr> "]")*> "=" <init: InitVal> <end:@R> => VarDef { ident, indices, init: Some(init) }.into_span(start, end),
 };
 
-InitVal: InitVal = {
-  <expr: Expr> => InitVal { <> },
+InitVal: Span<InitVal> = {
+  <start:@L> <expr: Expr> <end:@R> => InitVal::Expr(expr).into_span(start, end),
+  <start:@L> "{" <mut vals: (<InitVal> ",")*> <val: InitVal?> "}" <end:@R> => {
+    vals.extend(val);
+    InitVal::InitList(vals.into()).into_span(start, end)
+  },
 };
 
 Stmt: Span<Stmt> = {
@@ -95,7 +102,7 @@ Stmt: Span<Stmt> = {
 };
 
 MatchedIfStmt: Span<Stmt> = {
-  <start:@L> <ident: Ident> "=" <expr: Expr> ";" <end:@R> => Stmt::Assign { ident, expr }.into_span(start, end),
+  <start:@L> <lval: LVal> "=" <expr: Expr> ";" <end:@R> => Stmt::Assign { lval, expr }.into_span(start, end),
   <start:@L> <expr: Expr?> ";" <end:@R> => Stmt::Expr { expr }.into_span(start, end),
   <start:@L> <block: Block> <end:@R> => Stmt::Block { block }.into_span(start, end),
   <start:@L> "if" "(" <cond: Expr> ")" <then: MatchedIfStmt> "else" <els: MatchedIfStmt> <end:@R> => Stmt::If {
@@ -109,7 +116,7 @@ MatchedIfStmt: Span<Stmt> = {
   }.into_span(start, end),
   <start:@L> "break" ";" <end:@R> => Stmt::Break(().into_span(start, end)).into_span(start, end),
   <start:@L> "continue" ";" <end:@R> => Stmt::Continue(().into_span(start, end)).into_span(start, end),
-  <start:@L> "return" <expr: Expr> ";" <end:@R> => Stmt::Return { expr }.into_span(start, end)
+  <start:@L> "return" <expr: Expr?> ";" <end:@R> => Stmt::Return(expr).into_span(start, end)
 };
 
 UnmatchedIfStmt: Span<Stmt> = {
@@ -129,8 +136,12 @@ Expr: Expr = <expr: LOrExpr> => <>;
 
 PrimaryExpr: Expr = {
   <num: Number> => Expr::Number(<>),
-  Ident => Expr::LVar(<>),
+  LVal => Expr::LVal(<>),
   "(" <expr: Expr> ")" => <>,
+};
+
+LVal: Span<LVal> = {
+  <start:@L> <ident: Ident> <indices: ("[" <Expr> "]")*> <end:@R> => LVal { ident, indices }.into_span(start, end),
 };
 
 UnaryExpr: Expr = {
