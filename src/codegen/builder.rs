@@ -26,6 +26,17 @@ impl BlockBuilder {
         }
     }
 
+    /// Add an annotation to the block.
+    pub fn add_annotation(&mut self, annotation: String) {
+        if let Some(id) = self.block.back() {
+            if let Some(annot) = id.annotation() {
+                id.set_annotation(format!("{}; {}", annot, annotation));
+            } else {
+                id.set_annotation(annotation);
+            }
+        }
+    }
+
     /// Build the block.
     pub fn build(self) -> Block {
         self.block

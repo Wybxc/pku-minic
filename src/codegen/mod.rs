@@ -173,6 +173,7 @@ impl Codegen<&koopa::ir::FunctionData> {
             }
             for &inst in node.insts().keys() {
                 Codegen(inst).generate(&mut block, program_ctx, function_ctx, epilogue.iter());
+                block.add_annotation(utils::dbg_inst(inst, function_ctx.dfg));
             }
             let block = block.build();
 
@@ -419,7 +420,6 @@ impl Codegen<koopa::ir::entities::Value> {
                 // Schedule moves.
                 let nodes = moves.len();
                 {
-                    // block.push(Inst::Nop); // for debugging
                     use petgraph::prelude::*;
                     let mut graph = DiGraph::with_capacity(nodes, nodes);
                     for (&target, &arg) in moves.iter() {
@@ -450,7 +450,6 @@ impl Codegen<koopa::ir::entities::Value> {
                             block.push(Inst::Mv(after, RegId::T0));
                         }
                     }
-                    // block.push(Inst::Nop); // for debugging
                 }
 
                 for (target, arg) in after_moves.into_iter() {

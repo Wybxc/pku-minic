@@ -100,7 +100,7 @@ pub fn dbg_inst(inst: Value, dfg: &DataFlowGraph) -> String {
     let value = dfg.value(inst);
     let body = match value.kind() {
         ValueKind::Integer(i) => format!("{}", i.value()),
-        ValueKind::Alloc(_) => format!("alloc {}", value.ty()),
+        ValueKind::Alloc(_) => format!("alloc {}", &value.ty().to_string()[1..]),
         ValueKind::Load(v) => format!("load {}", ident_inst(v.src(), dfg)),
         ValueKind::Store(v) => format!(
             "store {}, {}",
