@@ -960,6 +960,7 @@ impl ast::Expr {
                     match ty.cast(expected_type) {
                         types::TypeCast::Noop => {}
                         types::TypeCast::ArrayToPtr => {
+                            // T[N][..]* -> T[..]*
                             let dfg = layout.dfg_mut();
                             let index = dfg.new_value().integer(0);
                             let ptr = dfg.new_value().get_elem_ptr(var, index);
@@ -972,6 +973,7 @@ impl ast::Expr {
                         })?,
                     }
                 }
+                // T* -> T
                 let load = layout.dfg_mut().new_value().load(var);
                 layout.push_inst(load)
             }
@@ -1098,10 +1100,12 @@ impl Span<ast::LVal> {
             let index = index.build_ir_in(symtable, layout, Some(VType::Int))?;
             let (ptr, new_ty) = match ty.to_indexed() {
                 IndexCast::Array(new_ty) => {
+                    // T[N][..]* -> T[..]*
                     let ptr = layout.dfg_mut().new_value().get_elem_ptr(var, index);
                     (ptr, new_ty)
                 }
                 IndexCast::Ptr(new_ty) => {
+                    // T** -> T*
                     let ptr = layout.dfg_mut().new_value().load(var);
                     layout.push_inst(ptr);
                     let ptr = layout.dfg_mut().new_value().get_ptr(ptr, index);

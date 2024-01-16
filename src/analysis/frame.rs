@@ -1,7 +1,5 @@
 //! Frame size analysis.
 
-use miette::Result;
-
 use crate::{
     analysis::{call::FunctionCalls, localvar::LocalVars, register::RegAlloc},
     codegen::riscv::FrameSize,
@@ -21,7 +19,7 @@ impl Frame {
         localvar: &LocalVars,
         reg_alloc: &RegAlloc,
         function_call: &FunctionCalls,
-    ) -> Result<Self> {
+    ) -> Self {
         let ra = !function_call.is_leaf;
         let local = localvar.frame_size;
         let spilled = reg_alloc.frame_size;
@@ -30,6 +28,6 @@ impl Frame {
         let size = FrameSize::new(ra, local, spilled, saved, arg);
 
         let total = size.total();
-        Ok(Self { size, total })
+        Self { size, total }
     }
 }
