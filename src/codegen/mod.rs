@@ -20,6 +20,7 @@ use nolog::*;
 mod builder;
 pub mod error;
 pub mod imm;
+mod peephole;
 pub mod riscv;
 
 use builder::BlockBuilder;
@@ -74,7 +75,7 @@ pub struct FunctionContext<'a> {
 
 impl Codegen<&koopa::ir::Program> {
     /// Generate code from Koopa IR.
-    pub fn generate(self, analyzer: &mut Analyzer) -> Result<riscv::Program> {
+    pub fn generate(self, analyzer: &mut Analyzer, opt_level: u8) -> Result<riscv::Program> {
         let mut program = riscv::Program::new();
         let mut program_ctx = ProgramContext {
             global: analyzer.analyze_global_values(),
@@ -109,7 +110,8 @@ impl Codegen<&koopa::ir::Program> {
                     frame: analyzer.analyze_frame(func),
                     bb_map: bbs.keys().map(|&bb| (bb, BlockId::next_id())).collect(),
                 };
-                let func = Codegen(func_data).generate(id, &mut program_ctx, &function_ctx);
+                let func =
+                    Codegen(func_data).generate(id, &mut program_ctx, &function_ctx, opt_level);
                 program.push(func);
             }
         }
@@ -134,6 +136,7 @@ impl Codegen<&koopa::ir::FunctionData> {
         id: FunctionId,
         program_ctx: &mut ProgramContext,
         function_ctx: &FunctionContext,
+        opt_level: u8,
     ) -> riscv::Function {
         // Generate code for the function.
         let mut func = riscv::Function::new(id);
@@ -175,10 +178,10 @@ impl Codegen<&koopa::ir::FunctionData> {
                 Codegen(inst).generate(&mut block, program_ctx, function_ctx, epilogue.iter());
                 block.add_annotation(utils::dbg_inst(inst, function_ctx.dfg));
             }
-            let block = block.build();
+            let mut block = block.build();
 
-            // // peephole optimization.
-            // peephole::optimize(&mut block, opt_level);
+            // peephole optimization.
+            peephole::optimize(&mut block, opt_level);
 
             func.push(id, block);
         }
