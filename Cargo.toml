@@ -30,3 +30,7 @@ trace = ["nolog/trace", "nolog/location_hide"]
 
 [profile.release]
 incremental = false
+
+[profile.release-bench]
+inherits = "release"
+debug = 2
