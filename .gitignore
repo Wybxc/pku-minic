@@ -13,6 +13,8 @@ target/
 .idea/
 
 # Test files
+/fuzz-in
+/fuzz-out
 /*.c
 /*.kp
 /*.s
