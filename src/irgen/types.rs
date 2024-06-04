@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, num::NonZeroI32};
 
 use koopa::ir::Type;
 
@@ -8,7 +8,7 @@ pub enum VType {
     Int,
     Void,
     Ptr(Box<VType>),
-    Array(Box<VType>, i32),
+    Array(Box<VType>, NonZeroI32),
 }
 
 impl VType {
@@ -24,7 +24,7 @@ impl VType {
         VType::Ptr(Box::new(self))
     }
 
-    pub fn into_array(self, index: i32) -> Self {
+    pub fn into_array(self, index: NonZeroI32) -> Self {
         VType::Array(Box::new(self), index)
     }
 
@@ -58,7 +58,7 @@ impl VType {
             VType::Int => Type::get_i32(),
             VType::Void => Type::get_unit(),
             VType::Ptr(ty) => Type::get_pointer(ty.to_koopa()),
-            VType::Array(ty, index) => Type::get_array(ty.to_koopa(), *index as usize),
+            VType::Array(ty, index) => Type::get_array(ty.to_koopa(), index.get() as usize),
         }
     }
 }

@@ -1,4 +1,7 @@
 fn main() {
+    // Set pointer size to 4 bytes
+    koopa::ir::Type::set_ptr_size(4);
+
     #[cfg(feature = "fuzz")]
     {
         afl::fuzz!(|data: &[u8]| {

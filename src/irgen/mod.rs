@@ -1,5 +1,7 @@
 //! Build IR from AST.
 
+use std::num::NonZeroI32;
+
 use imbl::Vector;
 use koopa::ir::{builder_traits::*, dfg::DataFlowGraph, *};
 use miette::Result;
@@ -292,14 +294,20 @@ impl ast::BType {
         &self,
         indices: Vec<ConstExpr>,
         symtable: &SymbolTable,
-    ) -> Result<(VType, Vec<i32>)> {
+    ) -> Result<(VType, Vec<NonZeroI32>)> {
         let indices = indices
             .into_iter()
-            .map(|expr| expr.const_eval(symtable))
+            .map(|expr| {
+                let span = expr.span().into();
+                expr.const_eval(symtable).and_then(|size| {
+                    NonZeroI32::new(size)
+                        .ok_or(CompileError::InvalidArraySize { span, size }.into())
+                })
+            })
             .collect::<Result<Vec<_>>>()?;
         let mut ty = self.build_primitive();
         for index in indices.iter().copied().rev() {
-            ty = ty.into_array(index); // TODO: index must greater than 0
+            ty = ty.into_array(index);
         }
         Ok((ty, indices))
     }
@@ -526,7 +534,7 @@ impl ast::VarDef {
 
 impl Span<ast::InitVal> {
     /// Canonicalize the initializer.
-    pub fn canonicalize(self, indices: &[i32]) -> Result<Span<ast::InitVal>> {
+    pub fn canonicalize(self, indices: &[NonZeroI32]) -> Result<Span<ast::InitVal>> {
         let span = self.span().into();
         let new_ce = || CompileError::InvalidInitializer { span };
 
@@ -571,7 +579,7 @@ impl Span<ast::InitVal> {
                 } else {
                     break;
                 }
-                if digits[i].len() >= indices[i] as usize {
+                if digits[i].len() >= indices[i].get() as usize {
                     carry = Some(
                         ast::InitVal::InitList(std::mem::take(&mut digits[i])).into_span(0, 0),
                     );
@@ -585,11 +593,11 @@ impl Span<ast::InitVal> {
         // pad zeros
         let mut carry = None;
         for i in (0..indices.len()).rev() {
-            debug_assert!(digits[i].len() < indices[i] as usize);
+            debug_assert!(digits[i].len() < indices[i].get() as usize);
             if let Some(carry) = carry.take() {
                 digits[i].push(carry);
             }
-            digits[i].resize(indices[i] as usize, Self::zeroed(&indices[i + 1..]));
+            digits[i].resize(indices[i].get() as usize, Self::zeroed(&indices[i + 1..]));
             carry = Some(ast::InitVal::InitList(std::mem::take(&mut digits[i])).into_span(0, 0));
         }
         let carry = carry.unwrap();
@@ -597,11 +605,11 @@ impl Span<ast::InitVal> {
     }
 
     /// Return a zeroed initializer list.
-    fn zeroed(indices: &[i32]) -> Span<ast::InitVal> {
+    fn zeroed(indices: &[NonZeroI32]) -> Span<ast::InitVal> {
         match indices {
             [] => ast::InitVal::Expr(ast::Expr::Number(0.into_span(0, 0))).into_span(0, 0),
             [index, indices @ ..] => ast::InitVal::InitList(
-                (0..*index)
+                (0..index.get())
                     .map(|_| Self::zeroed(indices))
                     .collect::<Vec<_>>(),
             )
