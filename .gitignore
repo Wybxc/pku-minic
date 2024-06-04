@@ -13,6 +13,8 @@ target/
 .idea/
 
 # Test files
+/fuzz-in
+/fuzz-out
 /*.c
 /*.kp
 /*.s
@@ -20,3 +22,4 @@ target/
 /*.o
 /*.exe
 /proptest-regressions
+/*.out.*

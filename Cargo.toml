@@ -20,6 +20,7 @@ nolog = "1.0.19"
 indenter = "0.3.3"
 rand = { version = "0.8.5", optional = true }
 petgraph = "0.6.4"
+afl = { version = "0.15.6", optional = true }
 
 [build-dependencies]
 lalrpop = "0.20.0"
@@ -27,6 +28,7 @@ lalrpop = "0.20.0"
 [features]
 default = []
 trace = ["nolog/trace", "nolog/location_hide"]
+fuzz = ["afl"]
 
 [profile.release]
 incremental = false

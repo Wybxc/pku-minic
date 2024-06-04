@@ -14,13 +14,6 @@ use crate::codegen::{
 
 pub fn optimize(function: &mut Function, opt_level: u8) {
     if opt_level >= 1 {
-        function.for_each_mut(|_, block| {
-            copy_propagation(block);
-            constant_fold(block);
-        });
-        dead_code_elimination(function);
-    }
-    if opt_level >= 2 {
         for _ in 0..3 {
             function.for_each_mut(|_, block| {
                 copy_propagation(block);
@@ -42,6 +35,8 @@ enum Source {
     Imm(i32),
     /// Stack pointer with offset.
     Sp(i12),
+    /// Memory.
+    Mem(i12),
 }
 
 #[derive(Default)]
@@ -69,6 +64,10 @@ impl SourceMap {
         self.map.insert(r, Source::Sp(i));
     }
 
+    pub fn insert_mem(&mut self, r: RegId, i: i12) {
+        self.map.insert(r, Source::Mem(i));
+    }
+
     pub fn get(&self, r: RegId) -> Option<Source> {
         if r == RegId::X0 {
             return Some(Source::Imm(0));
@@ -78,7 +77,23 @@ impl SourceMap {
 
     pub fn make_dirty(&mut self, r: RegId) {
         self.map.remove(&r);
-        self.map.retain(|_, &s| s != Source::Reg(r));
+        self.map.retain(|_, &s| match s {
+            Source::Reg(s) => s != r,
+            _ => true,
+        });
+    }
+
+    pub fn make_dirty_mem(&mut self, i: Option<i12>) {
+        self.map.retain(|_, &s| match s {
+            Source::Mem(k) => {
+                if let Some(i) = i {
+                    k != i
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        });
     }
 
     pub fn clear(&mut self) {
@@ -116,6 +131,7 @@ pub fn copy_propagation(block: &mut Block) {
                 Some(Source::Imm(i)) => cursor.set_inst(Inst::Li(r, i)),
                 Some(Source::Reg(s)) => cursor.set_inst(Inst::Mv(r, s)),
                 Some(Source::Sp(i)) => cursor.set_inst(Inst::Addi(r, RegId::SP, i)),
+                Some(Source::Mem(i)) => cursor.set_inst(Inst::Lw(r, i, RegId::SP)),
                 _ => {}
             },
             Inst::Add(r, s1, s2) => match (source.get(s1), source.get(s2)) {
@@ -129,10 +145,15 @@ pub fn copy_propagation(block: &mut Block) {
                         cursor.set_inst(Inst::Addi(r, s1, i))
                     }
                 }
-                (Some(Source::Reg(s)), _) => cursor.set_inst(Inst::Add(r, s, s2)),
-                (_, Some(Source::Reg(s))) => cursor.set_inst(Inst::Add(r, s1, s)),
                 _ => {}
             },
+            Inst::Sub(r, s1, s2) => {
+                if let Some(Source::Imm(i)) = source.get(s2) {
+                    if let Ok(i) = i12::try_from(-i) {
+                        cursor.set_inst(Inst::Addi(r, s1, i))
+                    }
+                }
+            }
             Inst::Sw(r, i, s) if i.value() == 0 => {
                 if let Some(Source::Sp(i)) = source.get(s) {
                     cursor.set_inst(Inst::Sw(r, i, RegId::SP))
@@ -158,8 +179,15 @@ pub fn copy_propagation(block: &mut Block) {
         if let Some(dest) = inst.dest() {
             source.make_dirty(dest);
         }
-        if matches!(inst, Inst::Call(_)) {
-            source.clear();
+        match inst {
+            Inst::Call(_) => source.clear(),
+            Inst::Sw(_, i, RegId::SP) => {
+                source.make_dirty_mem(Some(i));
+            }
+            Inst::Sw(_, _, _) => {
+                source.make_dirty_mem(None);
+            }
+            _ => {}
         }
 
         // record new inst
@@ -183,6 +211,9 @@ pub fn copy_propagation(block: &mut Block) {
                         source.insert_sp(r, i);
                     }
                 }
+            }
+            Inst::Lw(r, i, RegId::SP) => {
+                source.insert_mem(r, i);
             }
             _ => {}
         }
