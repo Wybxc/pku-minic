@@ -37,7 +37,7 @@ impl GlobalValues {
 
                 let id = GlobalId::next_id();
                 id.set_name(name);
-                let size = data.ty().size();
+                let size = data.ty().size(); // TODO: multiply overflow
                 let base_size = match data.ty().kind() {
                     koopa::ir::TypeKind::Array(ty, _) => ty.size(),
                     _ => size,

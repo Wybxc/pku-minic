@@ -65,7 +65,7 @@ pub fn is_terminator(inst: &ValueData) -> bool {
 
 thread_local! {
     /// The next unique ID for a value.
-    static NEXT_ID: Cell<i32> = Cell::new(0);
+    static NEXT_ID: Cell<i32> = const { Cell::new(0) };
     /// Name map for values.
     static NAME_MAP: RefCell<HashMap<Value, String>> = RefCell::new(HashMap::new());
 }

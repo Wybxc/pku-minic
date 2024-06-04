@@ -106,6 +106,12 @@ macro_rules! make_reg_set {
 
 pub(crate) use make_reg_set;
 
+impl<const MASK: u32> Default for RegSet<MASK> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const MASK: u32> RegSet<MASK> {
     /// Create a new empty register set.
     pub const fn new() -> Self {

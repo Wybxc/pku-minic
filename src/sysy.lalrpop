@@ -1,6 +1,12 @@
 use crate::ast::*;
+use crate::MinicParseError;
+use lalrpop_util::ParseError;
 
 grammar;
+
+extern {
+    type Error = MinicParseError;
+}
 
 // Lexical rules
 match {
@@ -255,7 +261,19 @@ Ident: Span<String> = <start:@L> <ident: r"[a-zA-Z_][a-zA-Z0-9_]*"> <end:@R> =>
   ident.to_string().into_span(start, end);
 
 IntConst: i32 = {
-  r"[1-9][0-9]*" => <>.parse::<i32>().unwrap(),
-  r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
-  r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
+  <start:@L> <n: r"[1-9][0-9]*"> <end:@R> =>? n.parse::<i32>().map_err(
+    |_| ParseError::User {
+      error: MinicParseError::InvalidIntegerLiteral { span: (start..end).into() }
+    }
+  ),
+  <start:@L> <n: r"0[0-7]*"> <end:@R> =>? i32::from_str_radix(n, 8).map_err(
+    |_| ParseError::User {
+      error: MinicParseError::InvalidIntegerLiteral { span: (start..end).into() }
+    }
+  ),
+  <start:@L> <n: r"0[xX][0-9a-fA-F]+"> <end:@R> =>? i32::from_str_radix(&n[2..], 16).map_err(
+    |_| ParseError::User {
+      error: MinicParseError::InvalidIntegerLiteral { span: (start..end).into() }
+    }
+  ),
 }

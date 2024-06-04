@@ -150,15 +150,11 @@ fn main() -> Result<()> {
 }
 
 trait WithSourceCode {
-    fn with_source_code(self, source_code: impl miette::SourceCode + Send + Sync + 'static)
-        -> Self;
+    fn with_source_code(self, source_code: impl miette::SourceCode + 'static) -> Self;
 }
 
 impl<T> WithSourceCode for Result<T> {
-    fn with_source_code(
-        self,
-        source_code: impl miette::SourceCode + Send + Sync + 'static,
-    ) -> Self {
+    fn with_source_code(self, source_code: impl miette::SourceCode + 'static) -> Self {
         self.map_err(|err| err.with_source_code(source_code))
     }
 }

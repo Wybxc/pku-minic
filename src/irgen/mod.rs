@@ -299,7 +299,7 @@ impl ast::BType {
             .collect::<Result<Vec<_>>>()?;
         let mut ty = self.build_primitive();
         for index in indices.iter().copied().rev() {
-            ty = ty.into_array(index);
+            ty = ty.into_array(index); // TODO: index must greater than 0
         }
         Ok((ty, indices))
     }
@@ -1000,6 +1000,7 @@ impl ast::Expr {
 
     /// Const evaluation.
     pub fn const_eval(self, symtable: &SymbolTable) -> Result<i32> {
+        let span = self.span().into();
         Ok(match self {
             ast::Expr::Unary { op, expr } => {
                 let expr = expr.const_eval(symtable)?;
@@ -1013,11 +1014,15 @@ impl ast::Expr {
                 let lhs = lhs.const_eval(symtable)?;
                 let rhs = rhs.const_eval(symtable)?;
                 match op.node {
-                    ast::BinaryOp::Add => lhs.saturating_add(rhs),
-                    ast::BinaryOp::Sub => lhs.saturating_sub(rhs),
-                    ast::BinaryOp::Mul => lhs.saturating_mul(rhs),
-                    ast::BinaryOp::Div => lhs.checked_div(rhs).unwrap_or(-1), // A compile error?
-                    ast::BinaryOp::Mod => lhs.checked_rem(rhs).unwrap_or(-1),
+                    ast::BinaryOp::Add => lhs.wrapping_add(rhs),
+                    ast::BinaryOp::Sub => lhs.wrapping_sub(rhs),
+                    ast::BinaryOp::Mul => lhs.wrapping_mul(rhs),
+                    ast::BinaryOp::Div => lhs
+                        .checked_div(rhs)
+                        .ok_or(CompileError::DivisionByZero { span })?,
+                    ast::BinaryOp::Mod => lhs
+                        .checked_rem(rhs)
+                        .ok_or(CompileError::DivisionByZero { span })?,
                     ast::BinaryOp::Eq => (lhs == rhs) as i32,
                     ast::BinaryOp::Ne => (lhs != rhs) as i32,
                     ast::BinaryOp::Lt => (lhs < rhs) as i32,
@@ -1040,9 +1045,7 @@ impl ast::Expr {
                     Symbol::Func(_, _, _) => Err(CompileError::FuncAsVar { span })?,
                 }
             }
-            ast::Expr::Call(_) => Err(CompileError::NonConstantExpression {
-                span: self.span().into(),
-            })?,
+            ast::Expr::Call(_) => Err(CompileError::NonConstantExpression { span })?,
         })
     }
 }

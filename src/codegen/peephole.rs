@@ -443,7 +443,7 @@ impl<'a> Liveliness<'a> {
     }
 
     fn after_mut(&mut self, id: InstId) -> &mut RegSet {
-        self.after.entry(id).or_insert(RegSet::new())
+        self.after.entry(id).or_default()
     }
 }
 

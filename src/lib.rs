@@ -10,7 +10,7 @@ pub mod irgen;
 pub(crate) mod utils;
 
 lalrpop_mod!(
-    #[allow(clippy::useless_conversion)]
+    #[allow(dead_code, clippy::useless_conversion)]
     sysy
 );
 
@@ -64,6 +64,15 @@ pub enum MinicParseError {
         span: SourceSpan,
     },
 
+    /// Invalid integer literal
+    #[error("invalid integer literal")]
+    #[diagnostic(code(minic::invalid_integer_literal))]
+    InvalidIntegerLiteral {
+        /// Span of the invalid integer literal
+        #[label("invalid integer literal")]
+        span: SourceSpan,
+    },
+
     /// Unknown error
     #[error("unknown error")]
     #[diagnostic(code(minic::unknown))]
@@ -94,7 +103,7 @@ pub fn parse(input: &str) -> Result<ast::CompUnit> {
             ParseError::ExtraToken { token } => MinicParseError::ExtraToken {
                 span: (token.0..token.2).into(),
             },
-            _ => MinicParseError::Unknown,
+            ParseError::User { error } => error,
         }
     })?;
     Ok(ast)
@@ -111,7 +120,7 @@ pub fn compile(input: &str, _opt_level: u8) -> Result<(koopa::ir::Program, Progr
 pub fn codegen(
     ir: koopa::ir::Program,
     metadata: &ProgramMetadata,
-    opt_level: u8
+    opt_level: u8,
 ) -> Result<codegen::riscv::Program> {
     use codegen::Codegen;
 

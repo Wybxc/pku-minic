@@ -137,4 +137,12 @@ pub enum CompileError {
         #[label("invalid initializer")]
         span: SourceSpan,
     },
+
+    /// division by zero
+    #[error("division by zero")]
+    #[diagnostic(code(minic::div_by_zero))]
+    DivisionByZero {
+        #[label("division by zero")]
+        span: SourceSpan,
+    },
 }
