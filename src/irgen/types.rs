@@ -61,6 +61,17 @@ impl VType {
             VType::Array(ty, index) => Type::get_array(ty.to_koopa(), index.get() as usize),
         }
     }
+
+    pub fn size(&self) -> Option<usize> {
+        match self {
+            VType::Int => Some(4),
+            VType::Void => Some(0),
+            VType::Ptr(_) => Some(4),
+            VType::Array(ty, index) => ty
+                .size()
+                .and_then(|ty_size| ty_size.checked_mul(index.get() as usize)),
+        }
+    }
 }
 
 impl Display for VType {

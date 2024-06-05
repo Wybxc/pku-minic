@@ -216,7 +216,11 @@ impl ast::FuncParam {
     /// Build IR from AST.
     pub fn get_type(self, symtable: &SymbolTable) -> Result<VType> {
         Ok(if let Some(indices) = self.indices {
-            self.ty.node.build_ir(indices, symtable)?.0.into_ptr()
+            self.ty
+                .node
+                .build_ir(&self.ident, indices, symtable)?
+                .0
+                .into_ptr()
         } else {
             self.ty.node.build_primitive()
         })
@@ -281,6 +285,14 @@ impl ast::Decl {
 }
 
 impl ast::BType {
+    /// Default value of the type.
+    pub fn default_value(&self, dfg: &mut DataFlowGraph) -> Option<Value> {
+        match self {
+            ast::BType::Int => Some(dfg.new_value().integer(0)),
+            ast::BType::Void => None,
+        }
+    }
+
     /// Build IR from AST.
     pub fn build_primitive(&self) -> VType {
         match self {
@@ -292,6 +304,7 @@ impl ast::BType {
     /// Build IR from AST for array types.
     pub fn build_ir(
         &self,
+        ident: &Span<String>,
         indices: Vec<ConstExpr>,
         symtable: &SymbolTable,
     ) -> Result<(VType, Vec<NonZeroI32>)> {
@@ -301,6 +314,7 @@ impl ast::BType {
                 let span = expr.span().into();
                 expr.const_eval(symtable).and_then(|size| {
                     NonZeroI32::new(size)
+                        .filter(|size| size.get() > 0)
                         .ok_or(CompileError::InvalidArraySize { span, size }.into())
                 })
             })
@@ -309,15 +323,12 @@ impl ast::BType {
         for index in indices.iter().copied().rev() {
             ty = ty.into_array(index);
         }
-        Ok((ty, indices))
-    }
-
-    /// Default value of the type.
-    pub fn default_value(&self, dfg: &mut DataFlowGraph) -> Option<Value> {
-        match self {
-            ast::BType::Int => Some(dfg.new_value().integer(0)),
-            ast::BType::Void => None,
+        if ty.size().is_none() {
+            Err(CompileError::TooBigArraySize {
+                span: ident.span().into(),
+            })?;
         }
+        Ok((ty, indices))
     }
 }
 
@@ -353,7 +364,7 @@ impl ast::ConstDef {
             self.build_const(symtable)
         } else {
             // Get the type of the array.
-            let (ty, indices) = ty.build_ir(self.indices, symtable)?;
+            let (ty, indices) = ty.build_ir(&self.ident, self.indices, symtable)?;
 
             // Allocate a new array.
             let array = layout.dfg_mut().new_value().alloc(ty.to_koopa());
@@ -389,7 +400,7 @@ impl ast::ConstDef {
             self.build_const(symtable)
         } else {
             // Get the type of the array.
-            let (ty, indices) = ty.build_ir(self.indices, symtable)?;
+            let (ty, indices) = ty.build_ir(&self.ident, self.indices, symtable)?;
 
             // Initialize the array.
             let init = self
@@ -467,7 +478,7 @@ impl ast::VarDef {
         }
 
         // Get the type of the array or variable.
-        let (ty, indices) = ty.build_ir(self.indices, symtable)?;
+        let (ty, indices) = ty.build_ir(&self.ident, self.indices, symtable)?;
 
         // Allocate a new variable.
         let dfg = layout.dfg_mut();
@@ -506,7 +517,7 @@ impl ast::VarDef {
         }
 
         // Get the type of the array or variable.
-        let (ty, indices) = ty.build_ir(self.indices, symtable)?;
+        let (ty, indices) = ty.build_ir(&self.ident, self.indices, symtable)?;
 
         // Initialize the variable.
         let init = if let Some(init) = self.init {

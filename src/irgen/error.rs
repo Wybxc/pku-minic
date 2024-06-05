@@ -145,4 +145,12 @@ pub enum CompileError {
         #[label("division by zero")]
         span: SourceSpan,
     },
+
+    /// too big array size
+    #[error("too big array size")]
+    #[diagnostic(code(minic::too_big_array_size))]
+    TooBigArraySize {
+        #[label("array size too big")]
+        span: SourceSpan,
+    },
 }
